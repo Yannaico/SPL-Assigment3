@@ -91,13 +91,30 @@ public class StompFrame {
         return ret;
     }
 
-    //Override toString() from Object
     @Override
     public String toString() {
-        return "StompFrame{" +
-                "command='" + command + '\'' +
-                ", headers=" + headers +
-                ", body='" + body + '\'' +
-                '}';
+        StringBuilder sb = new StringBuilder();
+        
+        // 1. Command
+        sb.append(command).append("\n");
+        
+        // 2. Headers
+        // (Map<String, String>)
+        for (Map.Entry<String, String> header : headers.entrySet()) {
+            sb.append(header.getKey())
+            .append(":")
+            .append(header.getValue())
+            .append("\n");
+        }
+        
+        // 3. Empty Line _ SEPERATION
+        sb.append("\n");
+        
+        // 4. Body
+        if (body != null && !body.isEmpty()) {
+            sb.append(body);
+        }
+        
+        return sb.toString();
     }
 }
