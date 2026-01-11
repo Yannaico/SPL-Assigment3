@@ -1,6 +1,10 @@
 package bgu.spl.net.impl.stomp;
 
 import java.sql.Connection;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicInteger;
+
 import bgu.spl.net.impl.data.Database;
 import bgu.spl.net.api.StompMessagingProtocol;
 import bgu.spl.net.impl.data.LoginStatus;
@@ -12,6 +16,8 @@ public class StompMessagingProtocolImpl implements StompMessagingProtocol<StompF
     private boolean shouldTerminate = false;
     private boolean isLoggedIn = false;
     private String currentUser = null;
+    private Map<String, String> subscriptions = new ConcurrentHashMap<>();
+    private static AtomicInteger messageIdCounter = new AtomicInteger(0);
 
     @Override
     public void start(int connectionId, Connections connections) {
@@ -82,26 +88,33 @@ public class StompMessagingProtocolImpl implements StompMessagingProtocol<StompF
             return;
         }
 
-        // Optionally, validate other headers if needed
-        // String user = frame.getHeader("user");
-        // String teamA = frame.getHeader("team a");
-        // String teamB = frame.getHeader("team b");
-        // String eventName = frame.getHeader("event name");
-        // String time = frame.getHeader("time");
-        // String description = frame.getHeader("description");
-        // String body = frame.getBody();
+        if (!subscriptions.containsValue(destination)) {
+            sendError(frame, "Not subscribed", "You cannot send to '" + destination + "' without subscribing first.");
+            return;
+        }
 
-        // Forward the frame to all subscribers of the destination
-        connections.send(destination, frame);
+        String filename = frame.getHeader("file-name"); 
+        if (filename != null) {
+            Database.getInstance().trackFileUpload(currentUser, filename, destination);
+        }
 
-        // Handle receipt if present
+        StompFrame messageFrame = new StompFrame("MESSAGE");
+        messageFrame.addHeader("destination", destination);
+        messageFrame.addHeader("message-id", String.valueOf(messageIdCounter.incrementAndGet()));
+        // 4c. Copy the body and content (Game updates, user, team names, etc.)
+        // We don't validate them, we just pass them through.
+        messageFrame.setBody(frame.getBody());
+
+        // 5. Send the MESSAGE frame (not the SEND frame)
+        connections.send(destination, messageFrame);
+
         String receipt = frame.getHeader("receipt");
         if (receipt != null) {
             StompFrame receiptFrame = new StompFrame("RECEIPT");
             receiptFrame.addHeader("receipt-id", receipt);
             connections.send(connectionId, receiptFrame);
         }
-    }
+}
     private void handleConnect(StompFrame frame) {
         if(isLoggedIn) {
             sendError(frame, "Already logged in", "You are already logged in.");
