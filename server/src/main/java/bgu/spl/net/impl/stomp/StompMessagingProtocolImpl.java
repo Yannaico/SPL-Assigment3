@@ -1,6 +1,5 @@
 package bgu.spl.net.impl.stomp;
 
-import java.sql.Connection;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -60,21 +59,78 @@ public class StompMessagingProtocolImpl implements StompMessagingProtocol<StompF
                     break;
         }
     }
-
-
-    }
+}
 
     private void handleDisconnect(StompFrame frame) {
-        // TODO Auto-generated method stub
-        throw new UnsupportedOperationException("Unimplemented method 'handleDisconnect'");
+        if (!isLoggedIn) {
+            sendError(frame, "Not logged in", "You must be logged in to disconnect.");
+            return;
+        }
+
+        String receipt = frame.getHeader("receipt");
+        if (receipt != null) {
+            sendReceipt(receipt);
+        }
+
+        // Perform logout
+        Database.getInstance().logout(connectionId);
+        this.shouldTerminate = true;
     }
     private void handleUnsubscribe(StompFrame frame) {
-        // TODO Auto-generated method stub
-        throw new UnsupportedOperationException("Unimplemented method 'handleUnsubscribe'");
+        if (!isLoggedIn) {
+            sendError(frame, "Not logged in", "You must be logged in to unsubscribe.");
+            return;
+        }
+
+        String requestId = frame.getHeader("id");
+
+        if (requestId == null || requestId.isEmpty()) {
+            sendError(frame, "Malformed UNSUBSCRIBE", "Missing 'id' header.");
+            return;
+        }
+        // Check if subscribed with the given id
+        String destination = subscriptions.remove(requestId);
+        if (destination == null) {
+            sendError(frame, "Subscription not found", "No active subscription found with ID: " + requestId);
+            return;
+        }
+
+        connections.unsubscribe(destination, connectionId, requestId);
+
+        // Handle receipt if requested
+        String receipt = frame.getHeader("receipt");
+        if (receipt != null) {
+            sendReceipt(receipt);
+        }
     }
     private void handleSubscribe(StompFrame frame) {
-        // TODO Auto-generated method stub
-        throw new UnsupportedOperationException("Unimplemented method 'handleSubscribe'");
+        if (!isLoggedIn) {
+            sendError(frame, "Not logged in", "You must be logged in to subscribe.");
+            return;
+        }
+
+        String destination = frame.getHeader("destination");
+        String requestId = frame.getHeader("id");
+
+        if (destination == null || destination.isEmpty() || requestId == null || requestId.isEmpty()) {
+            sendError(frame, "Malformed SUBSCRIBE", "Missing 'destination' or 'id' header.");            return;
+        }
+
+        // Check if already subscribed with the same id
+        if (subscriptions.containsKey(requestId)) {
+            sendError(frame, "Already subscribed", "You are already subscribed with id '" + requestId + "'.");
+            return;
+        }
+
+        subscriptions.put(requestId, destination);
+        
+        connections.subscribe(destination, connectionId, requestId);
+
+        // Handle receipt if requested
+        String receipt = frame.getHeader("receipt");
+        if (receipt != null) {
+            sendReceipt(receipt);
+        }
     }
     private void handleSend(StompFrame frame) {
         if (!isLoggedIn) {
@@ -93,6 +149,7 @@ public class StompMessagingProtocolImpl implements StompMessagingProtocol<StompF
             return;
         }
 
+        // Track file upload if 'file-name' header is present
         String filename = frame.getHeader("file-name"); 
         if (filename != null) {
             Database.getInstance().trackFileUpload(currentUser, filename, destination);
@@ -101,18 +158,17 @@ public class StompMessagingProtocolImpl implements StompMessagingProtocol<StompF
         StompFrame messageFrame = new StompFrame("MESSAGE");
         messageFrame.addHeader("destination", destination);
         messageFrame.addHeader("message-id", String.valueOf(messageIdCounter.incrementAndGet()));
-        // 4c. Copy the body and content (Game updates, user, team names, etc.)
+        // Copy the body and content (Game updates, user, team names, etc.)
         // We don't validate them, we just pass them through.
         messageFrame.setBody(frame.getBody());
 
-        // 5. Send the MESSAGE frame (not the SEND frame)
+        // Send the MESSAGE frame (not the SEND frame)
         connections.send(destination, messageFrame);
 
+        // Handle receipt if requested
         String receipt = frame.getHeader("receipt");
         if (receipt != null) {
-            StompFrame receiptFrame = new StompFrame("RECEIPT");
-            receiptFrame.addHeader("receipt-id", receipt);
-            connections.send(connectionId, receiptFrame);
+            sendReceipt(receipt);
         }
 }
     private void handleConnect(StompFrame frame) {
@@ -162,6 +218,16 @@ public class StompMessagingProtocolImpl implements StompMessagingProtocol<StompF
         connections.send(connectionId, connectedFrame);
     }
 /**
+ * Sends a RECEIPT frame to acknowledge that a command with a receipt header was processed.
+ * @param receiptId The receipt ID from the original frame's receipt header.
+ */
+private void sendReceipt(String receiptId) {
+    StompFrame receiptFrame = new StompFrame("RECEIPT");
+    receiptFrame.addHeader("receipt-id", receiptId);
+    connections.send(connectionId, receiptFrame);
+}
+
+/**
  * Sends an ERROR frame in the specific format required by the assignment and closes the connection.
  * * @param faultyFrame The original frame that caused the error (used to extract receipt-id and print in body).
  * @param messageHeader A short description of the error (goes into the 'message' header).
@@ -170,12 +236,8 @@ public class StompMessagingProtocolImpl implements StompMessagingProtocol<StompF
 private void sendError(StompFrame faultyFrame, String messageHeader, String detailedInfo) {
     StompFrame errorFrame = new StompFrame("ERROR");
 
-    // 1. Add the mandatory 'message' header with the short description
-    // Source: "The ERROR frame SHOULD contain a message header with a short description" [cite: 358]
     errorFrame.addHeader("message", messageHeader);
 
-    // 2. Handle 'receipt-id'
-    // Source: "If the frame included a receipt header, the ERROR frame SHOULD set the receipt-id header..." [cite: 360]
     if (faultyFrame != null) {
         String receipt = faultyFrame.getHeader("receipt");
         if (receipt != null) {
@@ -183,15 +245,13 @@ private void sendError(StompFrame faultyFrame, String messageHeader, String deta
         }
     }
 
-    // 3. Construct the body in the requested format
-    // Format: "The message:" -> Separator -> Original Frame -> Separator -> Description
+    // Construct the body in the requested format
     StringBuilder body = new StringBuilder();
     body.append("The message:\n");
     body.append("-----\n");
     
     if (faultyFrame != null) {
         // Assuming your StompFrame.toString() returns the frame representation (Command + Headers + Body)
-        // Note: Make sure it does not include the null terminator (\u0000) inside the body text.
         body.append(faultyFrame.toString()); 
     } else {
         body.append("(No frame content available)");
@@ -199,15 +259,9 @@ private void sendError(StompFrame faultyFrame, String messageHeader, String deta
     
     body.append("\n-----\n");
     body.append(detailedInfo);
+    errorFrame.setBody(body.toString());
+    connections.send(connectionId, errorFrame);
 
-    // 4. Send the frame
-    // We append the body manually. Note: The toString() of the errorFrame usually handles command+headers.
-    // We add the null terminator at the very end.
-    String finalFrameString = errorFrame.toString() + body.toString() + "\u0000";
-    connections.send(connectionId, finalFrameString);
-
-    // 5. Close the connection
-    // Source: "it MUST then close the connection just after sending the ERROR frame" [cite: 347]
     this.shouldTerminate = true;
-}
+    }
 }
