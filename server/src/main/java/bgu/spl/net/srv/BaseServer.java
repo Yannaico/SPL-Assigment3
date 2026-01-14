@@ -6,6 +6,7 @@ import java.io.IOException;
 import java.net.ServerSocket;
 import java.net.Socket;
 import java.util.function.Supplier;
+import java.util.concurrent.atomic.AtomicInteger;
 
 public abstract class BaseServer<T> implements Server<T> {
 
@@ -13,6 +14,8 @@ public abstract class BaseServer<T> implements Server<T> {
     private final Supplier<MessagingProtocol<T>> protocolFactory;
     private final Supplier<MessageEncoderDecoder<T>> encdecFactory;
     private ServerSocket sock;
+    private final ConnectionsImpl<T> connections = new ConnectionsImpl<>();
+    private final AtomicInteger connectionIdCounter = new AtomicInteger(0);
 
     public BaseServer(
             int port,
@@ -36,12 +39,17 @@ public abstract class BaseServer<T> implements Server<T> {
             while (!Thread.currentThread().isInterrupted()) {
 
                 Socket clientSock = serverSock.accept();
+                int connectionId = connectionIdCounter.incrementAndGet();
 
                 BlockingConnectionHandler<T> handler = new BlockingConnectionHandler<>(
                         clientSock,
                         encdecFactory.get(),
-                        protocolFactory.get());
-
+                        protocolFactory.get(),
+                        connectionId,
+                        connections
+                );
+                
+                connections.addConnection(connectionId, handler);
                 execute(handler);
             }
         } catch (IOException ex) {

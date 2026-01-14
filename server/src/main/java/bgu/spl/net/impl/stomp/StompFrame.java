@@ -11,7 +11,11 @@ public class StompFrame {
     public StompFrame(String commands) {
         this.command = commands;
     }
-
+    public StompFrame(StompFrame other) {
+        this.command = other.command;
+        this.headers = new HashMap<>(other.headers);
+        this.body = other.body;
+    }
     public String getCommand() {
         return command;
     }

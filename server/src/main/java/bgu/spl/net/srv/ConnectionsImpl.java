@@ -6,14 +6,14 @@ import java.util.concurrent.ConcurrentHashMap;
 
 import bgu.spl.net.impl.stomp.StompFrame;
 
-public class ConnectionsImpl implements Connections<StompFrame> {
-    private Map<Integer, ConnectionHandler<StompFrame>> connections = new ConcurrentHashMap<>();
+public class ConnectionsImpl<T> implements Connections<T> {
+    private Map<Integer, ConnectionHandler<T>> connections = new ConcurrentHashMap<>();
     //Map <"Topic" <ConnectionId, SubscriptionId>>
     private Map<String,ConcurrentHashMap<Integer, String>> topics = new ConcurrentHashMap<>();
 
     @Override
-    public boolean send(int connectionId, StompFrame msg){
-        ConnectionHandler<StompFrame> handler = connections.get(connectionId);
+    public boolean send(int connectionId, T msg){
+        ConnectionHandler<T> handler = connections.get(connectionId);
         if(handler != null){
             handler.send(msg);
             return true;
@@ -22,14 +22,13 @@ public class ConnectionsImpl implements Connections<StompFrame> {
     }
 
     @Override
-    public void send(String channel, StompFrame msg){
+    public void send(String channel, T msg){
         ConcurrentHashMap<Integer, String> subscribers = topics.get(channel);
         if(subscribers != null){
             Set<Integer> connectionIds = subscribers.keySet();
             for(Integer id : connectionIds){
-                StompFrame temp = msg;//create a new frame to add subscription header (JAVA)
-                temp.addHeader("subscription:", subscribers.get(id));
-                send(id, temp);
+                T msgToSend = addsubscriptionToMsg(msg, id, channel);
+                send(id, msgToSend);
             }
         }
     }
@@ -59,7 +58,26 @@ public class ConnectionsImpl implements Connections<StompFrame> {
             }
         }
     }
-    public void addConnection(int connectionId, ConnectionHandler<StompFrame> handler) {
+    public void addConnection(int connectionId, ConnectionHandler<T> handler) {
         connections.put(connectionId, handler);
+    }
+    private T addsubscriptionToMsg(T msg, int connectionId, String channel) {
+        if (msg instanceof StompFrame) {
+            StompFrame frame = (StompFrame) msg;
+            StompFrame cloned = new StompFrame(frame);
+            
+            ConcurrentHashMap<Integer, String> subscribers = topics.get(channel);
+            String subscriptionId = subscribers.get(connectionId);
+            if (subscriptionId != null) {
+                cloned.addHeader("subscription", subscriptionId);
+            }
+            
+            // Add message-id (server-unique)
+            cloned.addHeader("message-id", String.valueOf(System.nanoTime()));
+            
+            return (T) cloned;
+        }
+        
+        return msg;
     }
 }

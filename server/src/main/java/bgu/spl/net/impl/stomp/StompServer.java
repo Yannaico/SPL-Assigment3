@@ -29,8 +29,6 @@ public class StompServer {
             ).serve();
 
         } else if (serverType.equals("reactor")) {
-            // Modalità Reactor
-            // Usa il numero di core disponibili per decidere quanti thread aprire
             Server.reactor(
                     Runtime.getRuntime().availableProcessors(),
                     port,
