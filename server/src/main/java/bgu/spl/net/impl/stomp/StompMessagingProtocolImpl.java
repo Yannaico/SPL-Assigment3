@@ -28,10 +28,7 @@ public class StompMessagingProtocolImpl implements StompMessagingProtocol<StompF
         String command = frame.getCommand();
         // Check if user is logged in for commands other than CONNECT
         if(!isLoggedIn && !command.equals("CONNECT")) {
-            //Create ERROR frame
-            StompFrame errorFrame = StompFrame.createErrorFrame("User not logged in", "You must log in before sending other commands.");
-            //Send error frame to client
-            connections.send(connectionId, errorFrame);
+            sendError(frame, "User not logged in", "You must log in before sending other commands.");
         }
         else{
             switch (command) {
@@ -51,10 +48,7 @@ public class StompMessagingProtocolImpl implements StompMessagingProtocol<StompF
                     handleDisconnect(frame);
                     break;
                 default:
-                    //Create ERROR frame for unknown command
-                    StompFrame errorFrame = StompFrame.createErrorFrame("Unknown command", "The command '" + command + "' is not recognized.");
-                    //Send error frame to client
-                    connections.send(connectionId, errorFrame);
+                    sendError(frame, "Unknown command", "The command '" + command + "' is not recognized.");
                     shouldTerminate = true;
                     break;
         }

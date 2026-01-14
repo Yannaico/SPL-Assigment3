@@ -97,10 +97,4 @@ public class StompFrame {
 
         return sb.toString();
     }
-    public static StompFrame createErrorFrame(String header, String body) {
-        StompFrame errorFrame = new StompFrame("ERROR");
-        errorFrame.addHeader("message", header);
-        errorFrame.setBody(body);
-        return errorFrame;
-    }
 }
