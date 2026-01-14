@@ -6,6 +6,7 @@
 /workspaces/SPL-Assigment3/server/src/main/java/bgu/spl/net/impl/rci/RemoteCommandInvocationProtocol.java
 /workspaces/SPL-Assigment3/server/src/main/java/bgu/spl/net/impl/stomp/StompMessageEncoderDecoder.java
 /workspaces/SPL-Assigment3/server/src/main/java/bgu/spl/net/impl/echo/EchoProtocol.java
+/workspaces/SPL-Assigment3/server/src/main/java/bgu/spl/net/impl/stomp/StompTestClient.java
 /workspaces/SPL-Assigment3/server/src/main/java/bgu/spl/net/api/StompMessagingProtocol.java
 /workspaces/SPL-Assigment3/server/src/main/java/bgu/spl/net/impl/newsfeed/NewsFeedServerMain.java
 /workspaces/SPL-Assigment3/server/src/main/java/bgu/spl/net/impl/data/Database.java
