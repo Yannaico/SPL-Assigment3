@@ -19,12 +19,12 @@ public class StompMessagingProtocolImpl implements StompMessagingProtocol<StompF
     private static AtomicInteger messageIdCounter = new AtomicInteger(0);
 
     @Override
-    public void start(int connectionId, Connections connections) {
+    public void start(int connectionId, Connections<StompFrame> connections) {
         this.connectionId = connectionId;
         this.connections = connections;
     }
     @Override
-    public void process(StompFrame frame) {
+    public StompFrame process(StompFrame frame) {
         String command = frame.getCommand();
         // Check if user is logged in for commands other than CONNECT
         if(!isLoggedIn && !command.equals("CONNECT")) {
@@ -53,6 +53,7 @@ public class StompMessagingProtocolImpl implements StompMessagingProtocol<StompF
                     break;
         }
     }
+    return null;
 }
 
     private void handleDisconnect(StompFrame frame) {
@@ -185,7 +186,7 @@ public class StompMessagingProtocolImpl implements StompMessagingProtocol<StompF
             case LOGGED_IN_SUCCESSFULLY:
             case ADDED_NEW_USER:
                 this.currentUser = username;
-                sendConnectedFrame();//
+                sendConnectedFrame();
                 break;
             case CLIENT_ALREADY_CONNECTED:
                 sendError(frame, "Client already connected", "This client is already connected.");

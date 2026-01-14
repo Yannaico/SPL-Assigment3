@@ -43,13 +43,13 @@ public class ConnectionsImpl implements Connections<StompFrame> {
     }
 
     @Override
-    public void subscribe(String channel, int connectionId, String subscriptionId) throws IOException{
+    public void subscribe(String channel, int connectionId, String subscriptionId){
         topics.putIfAbsent(channel, new ConcurrentHashMap<>());
         topics.get(channel).put(connectionId, subscriptionId);
     }
 
     @Override
-    public void unsubscribe(String channel, int connectionId, String subscriptionId) throws IOException
+    public void unsubscribe(String channel, int connectionId, String subscriptionId)
     {
         ConcurrentHashMap<Integer, String> subscribers = topics.get(channel);
         if(subscribers != null){
@@ -58,5 +58,8 @@ public class ConnectionsImpl implements Connections<StompFrame> {
                 topics.remove(channel);
             }
         }
+    }
+    public void addConnection(int connectionId, ConnectionHandler<StompFrame> handler) {
+        connections.put(connectionId, handler);
     }
 }

@@ -11,6 +11,8 @@ public interface Connections<T> {
     void disconnect(int connectionId);
 
     //new methods for subscribe and unsubscribe
-    void subscribe(String channel, int connectionId, String subscriptionId) throws IOException;
-    void unsubscribe(String channel, int connectionId, String subscriptionId) throws IOException;
+    void subscribe(String channel, int connectionId, String subscriptionId);
+    void unsubscribe(String channel, int connectionId, String subscriptionId);
+    void addConnection(int connectionId, ConnectionHandler<T> handler);
+
 }
