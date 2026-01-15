@@ -3,6 +3,8 @@
 #include <string>
 #include <iostream>
 #include <boost/asio.hpp>
+#include "StompProtocol.h"
+#include <mutex>
 
 using boost::asio::ip::tcp;
 
@@ -12,6 +14,11 @@ private:
 	const short port_;
 	boost::asio::io_service io_service_;   // Provides core I/O functionality
 	tcp::socket socket_;
+
+	StompProtocol protocol_;
+    
+    std::mutex socketMutex_;
+    bool connected_;
 
 public:
 	ConnectionHandler(std::string host, short port);
@@ -47,5 +54,6 @@ public:
 
 	// Close down the connection properly.
 	void close();
-
+	bool isConnected() const { return connected_; }
+    StompProtocol& getProtocol() { return protocol_; }
 }; //class ConnectionHandler
