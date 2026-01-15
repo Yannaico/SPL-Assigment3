@@ -63,8 +63,8 @@ public class ConnectionsImpl<T> implements Connections<T> {
     }
     private T addsubscriptionToMsg(T msg, int connectionId, String channel) {
         if (msg instanceof StompFrame) {
-            StompFrame frame = (StompFrame) msg;
-            StompFrame cloned = new StompFrame(frame);
+           
+            StompFrame cloned = new StompFrame((StompFrame) msg);
             
             ConcurrentHashMap<Integer, String> subscribers = topics.get(channel);
             String subscriptionId = subscribers.get(connectionId);
