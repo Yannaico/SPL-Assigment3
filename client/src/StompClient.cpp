@@ -165,11 +165,11 @@ int main(int argc, char* argv[]) {
             
             for (const Event& event : nae.events) {
                 std::string sendFrame = handler->getProtocol().buildSendFrame(
-                    topic, event, "current_user"
+                    topic, event, handler->getProtocol().getCurrentUsername()
                 );
                 handler->sendFrameAscii(sendFrame, '\0');
                 
-                handler->getProtocol().saveGameEvent("current_user", gameName, event);
+                handler->getProtocol().saveGameEvent(handler->getProtocol().getCurrentUsername(), gameName, event);
             }
         }
         else if (command == "summary") {

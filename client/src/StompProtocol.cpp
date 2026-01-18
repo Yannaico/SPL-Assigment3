@@ -33,7 +33,6 @@ string StompProtocol::buildConnectFrame(const string& host,
     frame.append("login:").append(user).append("\n");
     frame.append("passcode:").append(pass).append("\n");
     frame.append("\n");
-    frame.append(1, '\0');
     
     return frame;
 }
@@ -53,7 +52,6 @@ string StompProtocol::buildSubscribeFrame(const string& topic) {
     frame.append("id:").append(subId).append("\n");
     frame.append("receipt:").append(receiptId).append("\n");
     frame.append("\n");
-    frame.append(1, '\0');
     
     return frame;
 }
@@ -66,7 +64,6 @@ string StompProtocol::buildUnsubscribeFrame(const string& subId) {
     frame.append("id:").append(subId).append("\n");
     frame.append("receipt:").append(receiptId).append("\n");
     frame.append("\n");
-    frame.append(1, '\0');
     
     {
         lock_guard<mutex> lock(mtx);
@@ -109,9 +106,6 @@ string StompProtocol::buildSendFrame(const string& topic,
     // BODY - description
     frame.append("description:\n").append(event.get_discription()).append("\n");
     
-    // Null terminator
-    frame.append(1, '\0');
-    
     return frame;
 }
 
@@ -122,7 +116,6 @@ string StompProtocol::buildDisconnectFrame() {
     frame.append("DISCONNECT\n");
     frame.append("receipt:").append(receiptId).append("\n");
     frame.append("\n");
-    frame.append(1, '\0');
     
     return frame;
 }
@@ -157,26 +150,73 @@ void StompProtocol::handleMessageFrame(const string& frame) {
         bodyStream.append(line).append("\n");
     }
     
-    string user = headers["user"];
-    string teamA = headers["team a"];
-    string teamB = headers["team b"];
-    string gameName = teamA + "_" + teamB;
-    string eventName = headers["event name"];
-    string description = headers["description"];
+    std::string user = headers["user"];
+    std::string teamA = headers["team a"];
+    std::string teamB = headers["team b"];
+    std::string gameName = teamA + "_" + teamB;
+    std::string eventName = headers["event name"];
+    std::string timeStr = headers["time"];
+    int time = std::stoi(timeStr);
     
-    string body = bodyStream;
-    size_t descPos = body.find("description:");
-    if (descPos != string::npos) {
-        description = body.substr(descPos + 12); 
-        while (!description.empty() && 
-               (description.back() == '\n' || description.back() == '\r')) {
-            description.pop_back();
+    // Parsing BODY to extract game updates
+    std::map<std::string, std::string> gameUpdates;
+    std::map<std::string, std::string> teamAUpdates;
+    std::map<std::string, std::string> teamBUpdates;
+    std::string description = "";
+    
+    std::istringstream bodyStream2(bodyStream);
+    std::string section = "";
+    
+    while (std::getline(bodyStream2, line)) {
+        if (line.find("general game updates:") == 0) {
+            section = "general";
+        } else if (line.find("team a updates:") == 0) {
+            section = "team_a";
+        } else if (line.find("team b updates:") == 0) {
+            section = "team_b";
+        } else if (line.find("description:") == 0) {
+            section = "description";
+
+            std::string descLine;
+            while (std::getline(bodyStream2, descLine)) {
+                description.append(descLine).append("\n");
+            }
+            if (!description.empty() && description.back() == '\n') {
+                description.pop_back();
+            }
+            break;
+        } else if (!line.empty() && line.find(':') != std::string::npos) {
+            size_t colonPos = line.find(':');
+            std::string key = line.substr(0, colonPos);
+            std::string value = line.substr(colonPos + 1);
+            
+            if (!value.empty() && value[0] == ' ') {
+                value = value.substr(1);
+            }
+            if (!value.empty() && value.back() == '\r') {
+                value.pop_back();
+            }
+            
+            if (section == "general") {
+                gameUpdates[key] = value;
+            } else if (section == "team_a") {
+                teamAUpdates[key] = value;
+            } else if (section == "team_b") {
+                teamBUpdates[key] = value;
+            }
         }
     }
     
-    cout << user << " - " << gameName << ":\n";
-    cout << eventName << "\n\n";
-    cout << description << "\n" << endl;
+    // Creat Event and save
+    Event event(teamA, teamB, eventName, time, 
+                gameUpdates, teamAUpdates, teamBUpdates, description);
+    
+    saveGameEvent(user, gameName, event);
+    
+    // Print to console
+    std::cout << user << " - " << gameName << ":\n";
+    std::cout << eventName << "\n\n";
+    std::cout << description << "\n" << std::endl;
 }
 
 void StompProtocol::saveGameEvent(const string& user, 

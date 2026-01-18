@@ -22,7 +22,7 @@ private:
     map<string, string> subscriptions;
     
 
-    // Maps user -> game -> events
+    // Map: user -> game -> events
     map<string, map<string, names_and_events>> gameReports;
     
     string generateReceiptId();
@@ -63,6 +63,8 @@ public:
     void setLoggedIn(bool status) { loggedIn = status; }
 
     string getSubscriptionIdByTopic(const string& topic);
+    string getCurrentUsername() const { return username; }
+
 };
 
 #endif

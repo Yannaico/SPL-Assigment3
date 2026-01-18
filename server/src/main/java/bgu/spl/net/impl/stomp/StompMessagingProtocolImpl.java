@@ -144,11 +144,11 @@ public class StompMessagingProtocolImpl implements StompMessagingProtocol<StompF
             return;
         }
 
-        // Track file upload if 'file-name' header is present
+        /*// Track file upload if 'file-name' header is present
         String filename = frame.getHeader("file-name"); 
         if (filename != null) {
             Database.getInstance().trackFileUpload(currentUser, filename, destination);
-        }
+        }*/
 
         StompFrame messageFrame = new StompFrame("MESSAGE");
         messageFrame.addHeader("destination", destination);

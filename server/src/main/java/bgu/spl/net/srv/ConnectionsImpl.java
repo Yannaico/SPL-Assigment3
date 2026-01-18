@@ -3,6 +3,7 @@ import java.io.IOException;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import bgu.spl.net.impl.stomp.StompFrame;
 
@@ -10,6 +11,7 @@ public class ConnectionsImpl<T> implements Connections<T> {
     private Map<Integer, ConnectionHandler<T>> connections = new ConcurrentHashMap<>();
     //Map <"Topic" <ConnectionId, SubscriptionId>>
     private Map<String,ConcurrentHashMap<Integer, String>> topics = new ConcurrentHashMap<>();
+    private static final AtomicInteger messageIdCounter = new AtomicInteger(0);
 
     @Override
     public boolean send(int connectionId, T msg){
@@ -73,8 +75,8 @@ public class ConnectionsImpl<T> implements Connections<T> {
             }
             
             // Add message-id (server-unique)
-            cloned.addHeader("message-id", String.valueOf(System.nanoTime()));
-            
+            cloned.addHeader("message-id", String.valueOf(messageIdCounter.incrementAndGet()));
+
             return (T) cloned;
         }
         
