@@ -13,7 +13,7 @@ void socketReaderThread(ConnectionHandler* handler) {
         if (!handler->getFrameAscii(frame, '\0')) {
             break;
         }
-        std::cout << "DEBUG === RECEIVED FRAME ===\n" << frame << "\n==================\n";
+        //std::cout << "DEBUG === RECEIVED FRAME ===\n" << frame << "\n==================\n";
 
         if (frame.substr(0, 9) == "CONNECTED") {
             std::cout << "Login successful" << std::endl;
@@ -63,7 +63,7 @@ int main(int argc, char* argv[]) {
         std::string command = tokens[0];
         
         if (command == "login") {
-            cout << "DEBUG Attempting to log in..." << std::endl;
+            //cout << "DEBUG Attempting to log in..." << std::endl;
             if (tokens.size() != 4) {
                 std::cerr << "Usage: login host:port username password" << std::endl;
                 continue;
@@ -101,7 +101,7 @@ int main(int argc, char* argv[]) {
             handler->sendFrameAscii(connectFrame, '\0');            
         }
         else if (command == "join") {
-            std::cout << "DEBUG Processing join command" << std::endl;  
+            //std::cout << "DEBUG Processing join command" << std::endl;  
 
             if (tokens.size() != 2) {
                 std::cerr << "Usage: join game_name" << std::endl;
@@ -120,7 +120,7 @@ int main(int argc, char* argv[]) {
             std::string topic = "/" + gameName;
             
             std::string subscribeFrame = handler->getProtocol().buildSubscribeFrame(topic);
-            std::cout << "DEBUG === SENDING SUBSCRIBE ===\n" << subscribeFrame << "\n==================\n";
+            //std::cout << "DEBUG === SENDING SUBSCRIBE ===\n" << subscribeFrame << "\n==================\n";
 
             handler->sendFrameAscii(subscribeFrame, '\0');
             
