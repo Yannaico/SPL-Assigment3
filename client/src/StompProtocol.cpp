@@ -233,7 +233,7 @@ void StompProtocol::saveGameEvent(const string& user,
                                   const Event& event) {
     lock_guard<mutex> lock(mtx); // Critical section: protecting the map
     
-    // If the game entry doesn't exist for this user, create it
+    // If the game entry doesn't exist for this user, CREATE it
     if (gameReports[user].find(gameName) == gameReports[user].end()) {
         gameReports[user][gameName] = names_and_events();
         gameReports[user][gameName].team_a_name = event.get_team_a_name();
@@ -244,7 +244,7 @@ void StompProtocol::saveGameEvent(const string& user,
     gameReports[user][gameName].events.push_back(event);
 }
 
-// Generates the final summary file
+// generates the final summary file
 void StompProtocol::generateSummary(const string& gameName, 
                                     const string& user, 
                                     const string& outputFile) {
@@ -303,3 +303,11 @@ void StompProtocol::generateSummary(const string& gameName,
 // Utility: Find Subscription ID by Topic
 string StompProtocol::getSubscriptionIdByTopic(const string& topic) {
     lock_guard<mutex> lock(mtx);
+
+    for(auto const& [id,subTopic]: subscriptions) {
+        if(subTopic == topic) {
+            return id;
+        }
+    }
+    return "";
+}

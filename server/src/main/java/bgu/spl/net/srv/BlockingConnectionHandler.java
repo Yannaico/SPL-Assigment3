@@ -88,7 +88,7 @@ public class BlockingConnectionHandler<T> implements Runnable, ConnectionHandler
          try {
             if (out != null && connected) {
                 synchronized (out) {
-                    System.out.println(" DEBUG [SERVER SND]: " + msg.toString()); // Decommenta se serve
+                    System.out.println(" DEBUG [SERVER SND]: " + msg.toString());
                     out.write(encdec.encode(msg));
                     out.flush();
                 }
