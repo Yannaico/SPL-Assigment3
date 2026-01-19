@@ -80,6 +80,7 @@ string StompProtocol::buildSendFrame(const string& topic,
     
     frame.append("SEND\n");
     frame.append("destination:").append(topic).append("\n");
+    frame.append("\n");
     frame.append("user: ").append(user).append("\n");
     frame.append("team a: ").append(event.get_team_a_name()).append("\n");
     frame.append("team b: ").append(event.get_team_b_name()).append("\n");
@@ -125,40 +126,34 @@ void StompProtocol::handleMessageFrame(const string& frame) {
     string line;
     map<string, string> headers;
     
-    getline(iss, line);
-    
+    // 1. Parse Headers
+    getline(iss, line); // Skip command
     while (getline(iss, line) && !line.empty() && line != "\r") {
         size_t colonPos = line.find(':');
         if (colonPos != string::npos) {
             string key = line.substr(0, colonPos);
             string value = line.substr(colonPos + 1);
-            
-            if (!value.empty() && value[0] == ' ') {
-                value = value.substr(1);
-            }
-            
-            if (!value.empty() && value.back() == '\r') {
-                value.pop_back();
-            }
-            
+            // Trim (semplificato)
+            if (!value.empty() && value[0] == ' ') value = value.substr(1);
+            if (!value.empty() && value.back() == '\r') value.pop_back();
             headers[key] = value;
         }
     }
     
+    // 2. Extract Body
     string bodyStream = "";
     while (getline(iss, line)) {
+        if (!line.empty() && line.back() == '\r') line.pop_back(); // Remove CR
         bodyStream.append(line).append("\n");
     }
     
-    std::string user = headers["user"];
-    std::string teamA = headers["team a"];
-    std::string teamB = headers["team b"];
-    std::string gameName = teamA + "_" + teamB;
-    std::string eventName = headers["event name"];
-    std::string timeStr = headers["time"];
-    int time = std::stoi(timeStr);
+    // 3. Parse Body for Data (User, Team, Time, Updates)
+    std::string user = "";
+    std::string teamA = "";
+    std::string teamB = "";
+    std::string eventName = "";
+    int time = 0;
     
-    // Parsing BODY to extract game updates
     std::map<std::string, std::string> gameUpdates;
     std::map<std::string, std::string> teamAUpdates;
     std::map<std::string, std::string> teamBUpdates;
@@ -168,54 +163,55 @@ void StompProtocol::handleMessageFrame(const string& frame) {
     std::string section = "";
     
     while (std::getline(bodyStream2, line)) {
-        if (line.find("general game updates:") == 0) {
-            section = "general";
-        } else if (line.find("team a updates:") == 0) {
-            section = "team_a";
-        } else if (line.find("team b updates:") == 0) {
-            section = "team_b";
-        } else if (line.find("description:") == 0) {
-            section = "description";
+        if (!line.empty() && line.back() == '\r') line.pop_back();
 
+        // --- Parsing Metadata fields from Body ---
+        if (line.find("user: ") == 0) user = line.substr(6);
+        else if (line.find("team a: ") == 0) teamA = line.substr(8);
+        else if (line.find("team b: ") == 0) teamB = line.substr(8);
+        else if (line.find("event name: ") == 0) eventName = line.substr(12);
+        else if (line.find("time: ") == 0) {
+            try { time = std::stoi(line.substr(6)); } catch (...) { time = 0; }
+        }
+        // --- Parsing Sections ---
+        else if (line == "general game updates:") section = "general";
+        else if (line == "team a updates:") section = "team_a";
+        else if (line == "team b updates:") section = "team_b";
+        else if (line == "description:") {
+            section = "description";
+            // Read everything else as description
             std::string descLine;
             while (std::getline(bodyStream2, descLine)) {
+                if (!descLine.empty() && descLine.back() == '\r') descLine.pop_back();
                 description.append(descLine).append("\n");
             }
-            if (!description.empty() && description.back() == '\n') {
-                description.pop_back();
-            }
-            break;
-        } else if (!line.empty() && line.find(':') != std::string::npos) {
+            if (!description.empty() && description.back() == '\n') description.pop_back();
+            break; 
+        }
+        // --- Parsing Updates Key-Values ---
+        else if (!line.empty() && line.find(':') != std::string::npos) {
             size_t colonPos = line.find(':');
             std::string key = line.substr(0, colonPos);
             std::string value = line.substr(colonPos + 1);
+            if (!value.empty() && value[0] == ' ') value = value.substr(1);
             
-            if (!value.empty() && value[0] == ' ') {
-                value = value.substr(1);
-            }
-            if (!value.empty() && value.back() == '\r') {
-                value.pop_back();
-            }
-            
-            if (section == "general") {
-                gameUpdates[key] = value;
-            } else if (section == "team_a") {
-                teamAUpdates[key] = value;
-            } else if (section == "team_b") {
-                teamBUpdates[key] = value;
-            }
+            if (section == "general") gameUpdates[key] = value;
+            else if (section == "team_a") teamAUpdates[key] = value;
+            else if (section == "team_b") teamBUpdates[key] = value;
         }
     }
     
-    // Creat Event and save
+    std::string gameName = teamA + "_" + teamB;
+
+    // 4. Save and Print
     Event event(teamA, teamB, eventName, time, 
                 gameUpdates, teamAUpdates, teamBUpdates, description);
     
     saveGameEvent(user, gameName, event);
     
-    // Print to console
+    // Print to console formatted
     std::cout << user << " - " << gameName << ":\n";
-    std::cout << eventName << "\n\n";
+    std::cout << eventName << "\n";
     std::cout << description << "\n" << std::endl;
 }
 

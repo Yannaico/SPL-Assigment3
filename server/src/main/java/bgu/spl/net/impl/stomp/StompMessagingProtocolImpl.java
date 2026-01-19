@@ -25,6 +25,8 @@ public class StompMessagingProtocolImpl implements StompMessagingProtocol<StompF
     }
     @Override
     public StompFrame process(StompFrame frame) {
+        System.out.println(" DEBUG [SERVER RCV from " + connectionId + "]:\n" + frame.toString());
+        System.out.println("----------------------------------------");
         String command = frame.getCommand();
         // Check if user is logged in for commands other than CONNECT
         if(!isLoggedIn && !command.equals("CONNECT")) {
@@ -99,6 +101,7 @@ public class StompMessagingProtocolImpl implements StompMessagingProtocol<StompF
         }
     }
     private void handleSubscribe(StompFrame frame) {
+        System.err.println("DEBUG Handling SUBSCRIBE frame");
         if (!isLoggedIn) {
             sendError(frame, "Not logged in", "You must be logged in to subscribe.");
             return;
@@ -256,7 +259,13 @@ private void sendError(StompFrame faultyFrame, String messageHeader, String deta
     body.append(detailedInfo);
     errorFrame.setBody(body.toString());
     connections.send(connectionId, errorFrame);
-
-    this.shouldTerminate = true;
+    
+    if (isLoggedIn) {
+        Database.getInstance().logout(connectionId);
+        isLoggedIn = false;
+        currentUser = null;
     }
+    this.shouldTerminate = true;
+    connections.disconnect(connectionId);
+}
 }

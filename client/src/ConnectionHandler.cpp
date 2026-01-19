@@ -37,7 +37,7 @@ bool ConnectionHandler::getBytes(char bytes[], unsigned int bytesToRead) {
 	size_t tmp = 0;
 	boost::system::error_code error;
 	try {
-		lock_guard<std::mutex> lock(socketMutex_);
+		//lock_guard<std::mutex> lock(socketMutex_);
 		while (!error && bytesToRead > tmp) {
 			tmp += socket_.read_some(boost::asio::buffer(bytes + tmp, bytesToRead - tmp), error);
 		}
@@ -45,7 +45,6 @@ bool ConnectionHandler::getBytes(char bytes[], unsigned int bytesToRead) {
 			throw boost::system::system_error(error);
 	} catch (std::exception &e) {
 		std::cerr << "recv failed (Error: " << e.what() << ')' << std::endl;
-		connected_ = false;
 		return false;
 	}
 	return true;
@@ -55,7 +54,7 @@ bool ConnectionHandler::sendBytes(const char bytes[], int bytesToWrite) {
 	int tmp = 0;
 	boost::system::error_code error;
 	try {
-		std::lock_guard<std::mutex> lock(socketMutex_);
+		//std::lock_guard<std::mutex> lock(socketMutex_);
 		while (!error && bytesToWrite > tmp) {
 			tmp += socket_.write_some(boost::asio::buffer(bytes + tmp, bytesToWrite - tmp), error);
 		}
@@ -63,7 +62,6 @@ bool ConnectionHandler::sendBytes(const char bytes[], int bytesToWrite) {
 			throw boost::system::system_error(error);
 	} catch (std::exception &e) {
 		std::cerr << "recv failed (Error: " << e.what() << ')' << std::endl;
-		connected_ = false;
 		return false;
 	}
 	return true;
@@ -80,8 +78,6 @@ bool ConnectionHandler::sendLine(std::string &line) {
 
 bool ConnectionHandler::getFrameAscii(std::string &frame, char delimiter) {
 	char ch;
-	// Stop when we encounter the null character.
-	// Notice that the null character is not appended to the frame string.
 	try {
 		do {
 			if (!getBytes(&ch, 1)) {
@@ -92,13 +88,14 @@ bool ConnectionHandler::getFrameAscii(std::string &frame, char delimiter) {
 		} while (delimiter != ch);
 	} catch (std::exception &e) {
 		std::cerr << "recv failed2 (Error: " << e.what() << ')' << std::endl;
-		connected_ = false;
 		return false;
 	}
+	//std::cout << "\n DEBUG [CLIENT RCV] <<<<<<<<<<<<<<<\n" << frame << "\n[END RCV] <<<<<<<<<<<<<<<\n" << std::endl;
 	return true;
 }
 
 bool ConnectionHandler::sendFrameAscii(const std::string &frame, char delimiter) {
+	//std::cout << "\n DEBUG [CLIENT SND] >>>>>>>>>>>>>>>\n" << frame << "\n[END SND] >>>>>>>>>>>>>>>\n" << std::endl;
 	bool result = sendBytes(frame.c_str(), frame.length());
 	if (!result) return false;
 	return sendBytes(&delimiter, 1);

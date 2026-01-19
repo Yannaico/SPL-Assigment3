@@ -9,6 +9,7 @@ public class StompMessageEncoderDecoder implements MessageEncoderDecoder<StompFr
     @Override
     public StompFrame decodeNextByte(byte nextByte) {
         if(nextByte == '\0'){
+            System.err.println("\n DEBUG: Decoder found NULL char. Buffer len: " + len);
             return popMessage();
         }
         pushByte(nextByte);

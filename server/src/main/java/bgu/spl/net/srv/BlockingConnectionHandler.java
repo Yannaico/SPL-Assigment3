@@ -46,10 +46,17 @@ public class BlockingConnectionHandler<T> implements Runnable, ConnectionHandler
 
             // Initialize protocol with connectionId and connections
             protocol.start(connectionId, connections);
+            System.err.println("DEBUG: Handler started for ID " + connectionId);
 
             while (!protocol.shouldTerminate() && connected && (read = in.read()) >= 0) {
+                // --- DEBUG: Stampa ogni byte ricevuto ---
+                // Se il byte è \0 scriviamo [NULL], se è \n scriviamo [LF], altrimenti il char
+                if (read == 0) System.err.print("[NULL]");//DEBUG
+                else if (read == 10) System.err.print("[LF]");//DEBUG
+                else if (read == 13) System.err.print("[CR]");//DEBUG
+                else System.err.print((char)read);//DEBUG
+                // ----------------------------------------
                 T nextMessage = encdec.decodeNextByte((byte) read);
-                System.err.println("DEBUG Received message: " + nextMessage);
                 if (nextMessage != null) {
                     // Process message (no response needed - protocol uses connections.send())
                     protocol.process(nextMessage);
@@ -61,6 +68,10 @@ public class BlockingConnectionHandler<T> implements Runnable, ConnectionHandler
             }
 
         } catch (IOException ex) {
+            ex.printStackTrace();
+        }
+        catch(RuntimeException ex){
+            System.err.println("\nCRITICAL ERROR in Handler: " + ex.getMessage());
             ex.printStackTrace();
         }
 
@@ -77,6 +88,7 @@ public class BlockingConnectionHandler<T> implements Runnable, ConnectionHandler
          try {
             if (out != null && connected) {
                 synchronized (out) {
+                    System.out.println(" DEBUG [SERVER SND]: " + msg.toString()); // Decommenta se serve
                     out.write(encdec.encode(msg));
                     out.flush();
                 }

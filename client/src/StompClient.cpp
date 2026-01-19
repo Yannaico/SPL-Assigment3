@@ -13,7 +13,8 @@ void socketReaderThread(ConnectionHandler* handler) {
         if (!handler->getFrameAscii(frame, '\0')) {
             break;
         }
-        
+        std::cout << "DEBUG === RECEIVED FRAME ===\n" << frame << "\n==================\n";
+
         if (frame.substr(0, 9) == "CONNECTED") {
             std::cout << "Login successful" << std::endl;
             handler->getProtocol().setLoggedIn(true);
@@ -100,6 +101,8 @@ int main(int argc, char* argv[]) {
             handler->sendFrameAscii(connectFrame, '\0');            
         }
         else if (command == "join") {
+            std::cout << "DEBUG Processing join command" << std::endl;  
+
             if (tokens.size() != 2) {
                 std::cerr << "Usage: join game_name" << std::endl;
                 continue;
@@ -109,11 +112,16 @@ int main(int argc, char* argv[]) {
                 std::cerr << "Not connected to server" << std::endl;
                 continue;
             }
-            
+            if (!handler->getProtocol().isLoggedIn()) {
+                std::cerr << "Not logged in. Please wait for login to complete." << std::endl;
+                continue;
+            }
             std::string gameName = tokens[1];
             std::string topic = "/" + gameName;
             
             std::string subscribeFrame = handler->getProtocol().buildSubscribeFrame(topic);
+            std::cout << "DEBUG === SENDING SUBSCRIBE ===\n" << subscribeFrame << "\n==================\n";
+
             handler->sendFrameAscii(subscribeFrame, '\0');
             
             std::cout << "Joined channel " << gameName << std::endl;
