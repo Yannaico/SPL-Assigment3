@@ -1,57 +1,74 @@
 #include <stdlib.h>
 #include "../include/ConnectionHandler.h"
 
+
 /**
-* This code assumes that the server replies the exact text the client sent it (as opposed to the practical session example)
+* this code assumes that the server replies the exact text the client sent it
 */
 int main (int argc, char *argv[]) {
+   
+    //check if user sended enough arguments
     if (argc < 3) {
-        std::cerr << "Usage: " << argv[0] << " host port" << std::endl << std::endl;
+        cerr << "Usage: " << argv[0] << " host port" << endl << endl;
         return -1;
     }
-    std::string host = argv[1];
-    short port = atoi(argv[2]);
+    //saving host and port from arguments
+    string host = argv[1];
+    short port = atoi(argv[2]); //use atoi to convert from string to short
     
+
+    //createing connection handler to talk with the server
     ConnectionHandler connectionHandler(host, port);
+
+    //trying to connect to server
     if (!connectionHandler.connect()) {
-        std::cerr << "Cannot connect to " << host << ":" << port << std::endl;
+        cerr << "Cannot connect to " << host << ":" << port << endl;
         return 1;
     }
 	
-	//From here we will see the rest of the ehco client implementation:
+	//from here we will see the rest of the ehco client implementation:
     while (1) {
         const short bufsize = 1024;
         char buf[bufsize];
-        std::cin.getline(buf, bufsize);
-		std::string line(buf);
+
+
+        //read a line from the keyboard and puts \0 at the end of buf (without \n becuse we use getline and not cin)
+        cin.getline(buf, bufsize);
+		string line(buf); //create line from buf
 		int len=line.length();
+
+
+
+        //send the line to the server with the \n at the end (Automaticlly added in sendLine() function)
         if (!connectionHandler.sendLine(line)) {
-            std::cout << "Disconnected. Exiting...\n" << std::endl;
+            cout << "Disconnected. Exiting...\n" << endl;
             break;
         }
-		// connectionHandler.sendLine(line) appends '\n' to the message. Therefor we send len+1 bytes.
-        std::cout << "Sent " << len+1 << " bytes to server" << std::endl;
+		//again connectionHandler.sendLine(line) appends '\n' to the message. Therefor we send len+1 bytes.
+        cout << "Sent " << len+1 << " bytes to server" << endl;
 
- 
-        // We can use one of three options to read data from the server:
-        // 1. Read a fixed number of characters
-        // 2. Read a line (up to the newline character using the getline() buffered reader
-        // 3. Read up to the null character
-        std::string answer;
-        // Get back an answer: by using the expected number of bytes (len bytes + newline delimiter)
-        // We could also use: connectionHandler.getline(answer) and then get the answer without the newline char at the end
+        
+        // we can use one of three options to read data from the server:
+        //  read a fixed number of characters
+        //  read a line (up to the newline character using the getline() buffered reader
+        //  read up to the null character
+        string answer;
+        // get back an answer: by using the expected number of bytes (len bytes + newline delimiter)
+        // we could also use: connectionHandler.getline(answer) and then get the answer without the newline char at the end
+        
+        //Waiting for the answer from the server blocking the client until we get the answer
         if (!connectionHandler.getLine(answer)) {
-            std::cout << "Disconnected. Exiting...\n" << std::endl;
+            cout << "Disconnected. Exiting...\n" << std::endl;
             break;
         }
         
 		len=answer.length();
-		// A C string must end with a 0 char delimiter.  When we filled the answer buffer from the socket
+		// a C string must end with a 0 char delimiter.  When we filled the answer buffer from the socket
 		// we filled up to the \n char - we must make sure now that a 0 char is also present. So we truncate last character.
         answer.resize(len-1);
-        std::cout << "Reply: " << answer << " " << len << " bytes " << std::endl << std::endl;
+        cout << "Reply: " << answer << " " << len << " bytes " << std::endl << std::endl;
         if (answer == "bye") {
-            std::cout << "Exiting...\n" << std::endl;
+            cout << "Exiting...\n" << std::endl;
             break;
         }
     }
