@@ -62,6 +62,7 @@ int main(int argc, char* argv[]) {
         std::string command = tokens[0];
         
         if (command == "login") {
+            cout << "DEBUG Attempting to log in..." << std::endl;
             if (tokens.size() != 4) {
                 std::cerr << "Usage: login host:port username password" << std::endl;
                 continue;
@@ -93,12 +94,10 @@ int main(int argc, char* argv[]) {
                 handler = nullptr;
                 continue;
             }
-            
-            std::string connectFrame = handler->getProtocol().buildConnectFrame(host, username, password);
-            handler->sendFrameAscii(connectFrame, '\0');
-            
             readerThread = new std::thread(socketReaderThread, handler);
-            
+
+            std::string connectFrame = handler->getProtocol().buildConnectFrame(host, username, password);
+            handler->sendFrameAscii(connectFrame, '\0');            
         }
         else if (command == "join") {
             if (tokens.size() != 2) {

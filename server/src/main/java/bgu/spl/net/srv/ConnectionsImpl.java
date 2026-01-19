@@ -61,6 +61,7 @@ public class ConnectionsImpl<T> implements Connections<T> {
         }
     }
     public void addConnection(int connectionId, ConnectionHandler<T> handler) {
+        System.err.println("DEBUG Adding connection with ID: " + connectionId);
         connections.put(connectionId, handler);
     }
     private T addsubscriptionToMsg(T msg, int connectionId, String channel) {

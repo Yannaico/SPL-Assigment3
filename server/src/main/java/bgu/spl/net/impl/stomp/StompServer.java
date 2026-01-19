@@ -22,6 +22,7 @@ public class StompServer {
         String serverType = args[1];
 
         if (serverType.equals("tpc")) {
+            System.err.println("DEBUG Starting Stomp Server in Thread Per Client mode");
             Server.threadPerClient(
                     port,
                     () -> new StompMessagingProtocolImpl(), // Protocol Factory 
