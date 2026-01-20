@@ -28,6 +28,9 @@ private:
     string generateReceiptId();
     string generateSubscriptionId();
     
+
+
+    // Logout synchronization
     std::mutex logoutMutex;
     std::condition_variable logoutCv;
     std::string expectedReceiptId = ""; 
