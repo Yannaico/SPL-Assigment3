@@ -53,10 +53,6 @@ public class BlockingConnectionHandler<T> implements Runnable, ConnectionHandler
                 if (nextMessage != null) {
                     // Process message (no response needed - protocol uses connections.send())
                     protocol.process(nextMessage);
-                    /*if (response != null) {
-                        out.write(encdec.encode(response));
-                        out.flush();
-                    }*/
                 }
             }
 
@@ -95,7 +91,7 @@ public class BlockingConnectionHandler<T> implements Runnable, ConnectionHandler
                 }
             }
         } catch (IOException e) {
-            e.printStackTrace();
+          connected = false;
         }
     }
 }

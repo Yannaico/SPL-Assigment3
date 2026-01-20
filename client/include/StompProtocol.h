@@ -6,7 +6,7 @@
 #include <vector>
 #include <mutex>
 #include "event.h"
-
+#include <condition_variable>
 using namespace std;
 
 class StompProtocol {
@@ -28,6 +28,12 @@ private:
     string generateReceiptId();
     string generateSubscriptionId();
     
+    std::mutex logoutMutex;
+    std::condition_variable logoutCv;
+    std::string expectedReceiptId = ""; 
+    bool isLogoutComplete = false;
+
+
 public:
     StompProtocol();
     

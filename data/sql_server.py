@@ -111,10 +111,16 @@ def handle_client(client_socket: socket.socket, addr):
             if message == "":
                 break
 
-            print(f"[{SERVER_NAME}] Received:")
-            print(message)
-
-            client_socket.sendall(b"done\0")
+            print(f"[{SERVER_NAME}] Received SQL: {message}")
+            
+            response = ""
+            command_upper = message.strip().upper()
+            
+            if command_upper.startswith("SELECT"):
+                response = execute_sql_query(message)
+            else:
+                response = execute_sql_command(message)
+            client_socket.sendall(response.encode('utf-8') + b"\0")
 
     except Exception as e:
         print(f"[{SERVER_NAME}] Error handling client {addr}: {e}")

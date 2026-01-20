@@ -21,6 +21,16 @@ public class StompServer {
 
         String serverType = args[1];
 
+        new Thread(() -> {
+            java.util.Scanner scanner = new java.util.Scanner(System.in);
+            while (scanner.hasNextLine()) {
+                String line = scanner.nextLine();
+                if (line.trim().equalsIgnoreCase("report")) {
+                    bgu.spl.net.impl.data.Database.getInstance().printReport();
+                }
+            }
+        }).start();
+        
         if (serverType.equals("tpc")) {
             Server.threadPerClient(
                     port,

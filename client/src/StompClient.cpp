@@ -5,6 +5,8 @@
 #include <vector>
 #include "../include/ConnectionHandler.h"
 #include "event.h"
+using namespace std;
+
 
 // helper function split String 
 // splits a string by a delimiter (\0) into a vector of parts (tokens)
@@ -49,8 +51,8 @@ void socketReaderThread(ConnectionHandler* handler) {
             handler->getProtocol().handleMessageFrame(frame);
             
         } else if (frame.substr(0, 7) == "RECEIPT") {
-            //print receipt info g
-            cout << "Receipt received.\n" << frame <<  endl;
+            
+            std::cout<< "Received RECEIPT frame:\n" << frame <<  endl;
         }
     }
 }
@@ -168,19 +170,25 @@ int main(int argc, char* argv[]) {
              string filename = tokens[1];
             
             // Parse the JSON file (provided logic)
-            names_and_events nae = parseEventsFile(filename);
-            // Construct topic and user
-             string gameName = nae.team_a_name + "_" + nae.team_b_name;
-             string topic = "/" + gameName;
-             string user = handler->getProtocol().getCurrentUsername();
-            
-            // Send a frame for EACH event in the file
-            for (const Event& event : nae.events) {
-                 string frame = handler->getProtocol().buildSendFrame(topic, event, user,filename);
-                handler->sendFrameAscii(frame, '\0');
+            try {
+                names_and_events nae = parseEventsFile(filename);
                 
-                // Save locally for summary later
-                handler->getProtocol().saveGameEvent(user, gameName, event);
+                std::string gameName = nae.team_a_name + "_" + nae.team_b_name;
+                std::string topic = "/" + gameName;
+                
+                for (const Event& event : nae.events) {
+                    std::string sendFrame = handler->getProtocol().buildSendFrame(
+                        topic, event, handler->getProtocol().getCurrentUsername(), filename);
+                    
+                    handler->sendFrameAscii(sendFrame, '\0');
+                    
+                    handler->getProtocol().saveGameEvent(handler->getProtocol().getCurrentUsername(), gameName, event);
+                }
+              
+
+            } catch (const std::exception& e) {
+                // Cattura sia file non trovato che errori JSON
+                std::cerr << "Error processing report file: " << e.what() << std::endl;
             }
         }
         
