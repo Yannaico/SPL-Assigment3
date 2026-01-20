@@ -13,7 +13,6 @@ void socketReaderThread(ConnectionHandler* handler) {
         if (!handler->getFrameAscii(frame, '\0')) {
             break;
         }
-        //std::cout << "DEBUG === RECEIVED FRAME ===\n" << frame << "\n==================\n";
 
         if (frame.substr(0, 9) == "CONNECTED") {
             std::cout << "Login successful" << std::endl;
@@ -63,7 +62,6 @@ int main(int argc, char* argv[]) {
         std::string command = tokens[0];
         
         if (command == "login") {
-            //cout << "DEBUG Attempting to log in..." << std::endl;
             if (tokens.size() != 4) {
                 std::cerr << "Usage: login host:port username password" << std::endl;
                 continue;
@@ -101,7 +99,6 @@ int main(int argc, char* argv[]) {
             handler->sendFrameAscii(connectFrame, '\0');            
         }
         else if (command == "join") {
-            //std::cout << "DEBUG Processing join command" << std::endl;  
 
             if (tokens.size() != 2) {
                 std::cerr << "Usage: join game_name" << std::endl;
@@ -120,7 +117,6 @@ int main(int argc, char* argv[]) {
             std::string topic = "/" + gameName;
             
             std::string subscribeFrame = handler->getProtocol().buildSubscribeFrame(topic);
-            //std::cout << "DEBUG === SENDING SUBSCRIBE ===\n" << subscribeFrame << "\n==================\n";
 
             handler->sendFrameAscii(subscribeFrame, '\0');
             
@@ -165,18 +161,23 @@ int main(int argc, char* argv[]) {
             
             std::string filename = tokens[1];
             
-            names_and_events nae = parseEventsFile(filename);
-            
-            std::string gameName = nae.team_a_name + "_" + nae.team_b_name;
-            std::string topic = "/" + gameName;
-            
-            for (const Event& event : nae.events) {
-                std::string sendFrame = handler->getProtocol().buildSendFrame(
-                    topic, event, handler->getProtocol().getCurrentUsername()
-                );
-                handler->sendFrameAscii(sendFrame, '\0');
+              try {
+                names_and_events nae = parseEventsFile(filename);
                 
-                handler->getProtocol().saveGameEvent(handler->getProtocol().getCurrentUsername(), gameName, event);
+                std::string gameName = nae.team_a_name + "_" + nae.team_b_name;
+                std::string topic = "/" + gameName;
+                
+                for (const Event& event : nae.events) {
+                    std::string sendFrame = handler->getProtocol().buildSendFrame(
+                        topic, event, handler->getProtocol().getCurrentUsername()
+                    );
+                    handler->sendFrameAscii(sendFrame, '\0');
+                    
+                    handler->getProtocol().saveGameEvent(handler->getProtocol().getCurrentUsername(), gameName, event);
+                }
+
+            } catch (const std::exception& e) {
+                std::cerr << "Error processing report file: " << e.what() << std::endl;
             }
         }
         else if (command == "summary") {
