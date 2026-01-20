@@ -153,6 +153,7 @@ public class StompMessagingProtocolImpl implements StompMessagingProtocol<StompF
         StompFrame messageFrame = new StompFrame("MESSAGE");
         messageFrame.addHeader("destination", destination);
         messageFrame.addHeader("message-id", String.valueOf(messageIdCounter.incrementAndGet()));
+        
         // Copy the body and content (Game updates, user, team names, etc.)
         // We don't validate them, we just pass them through.
         messageFrame.setBody(frame.getBody());

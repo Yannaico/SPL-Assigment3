@@ -80,11 +80,17 @@ string StompProtocol::buildUnsubscribeFrame(const string& subId) {
 
 string StompProtocol::buildSendFrame(const string& topic, 
                                      const Event& event, 
-                                     const string& user) {
+                                     const string& user,  const string& filename) {
     string frame = "SEND\n";
     frame += "destination:" + topic + "\n";
     frame += "\n"; // end of Headers
     
+
+    // Optional: Include filename if available (not in Event class,
+    if (!filename.empty()) {
+        frame += "file-name:" + filename + "\n";
+    }
+
     // start of Body (Assignment format)
     frame += "user: " + user + "\n";
     frame += "team a: " + event.get_team_a_name() + "\n";

@@ -40,9 +40,9 @@ public:
     
     string buildUnsubscribeFrame(const string& subscriptionId);
     
-    string buildSendFrame(const string& topic, 
-                               const Event& event, 
-                               const string& user);
+   string buildSendFrame(const string& topic, 
+                        const Event& event, 
+                        const string& user,  const string& filename);
     
     string buildDisconnectFrame();
     

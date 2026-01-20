@@ -58,7 +58,7 @@ int main (int argc, char *argv[]) {
         
         //Waiting for the answer from the server blocking the client until we get the answer
         if (!connectionHandler.getLine(answer)) {
-            cout << "Disconnected. Exiting...\n" << std::endl;
+            cout << "Disconnected. Exiting...\n" <<  endl;
             break;
         }
         
@@ -66,9 +66,9 @@ int main (int argc, char *argv[]) {
 		// a C string must end with a 0 char delimiter.  When we filled the answer buffer from the socket
 		// we filled up to the \n char - we must make sure now that a 0 char is also present. So we truncate last character.
         answer.resize(len-1);
-        cout << "Reply: " << answer << " " << len << " bytes " << std::endl << std::endl;
+        cout << "Reply: " << answer << " " << len << " bytes " <<  endl <<  endl;
         if (answer == "bye") {
-            cout << "Exiting...\n" << std::endl;
+            cout << "Exiting...\n" <<  endl;
             break;
         }
     }
