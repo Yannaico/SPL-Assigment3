@@ -227,108 +227,142 @@
      8	using std::endl;
      9	using std::string;
     10	
-    11	ConnectionHandler::ConnectionHandler(string host, short port) : host_(host), port_(port), io_service_(),
-    12	                                                                socket_(io_service_), connected_(false) {}
-    13	
-    14	ConnectionHandler::~ConnectionHandler() {
-    15		close();
-    16	}
-    17	
-    18	bool ConnectionHandler::connect() {
-    19		std::cout << "Starting connect to "
-    20		          << host_ << ":" << port_ << std::endl;
-    21		try {
-    22			tcp::endpoint endpoint(boost::asio::ip::address::from_string(host_), port_); // the server endpoint
-    23			boost::system::error_code error;
-    24			socket_.connect(endpoint, error);
-    25			if (error)
-    26				throw boost::system::system_error(error);
-    27			connected_ = true;
-    28		}
-    29		catch (std::exception &e) {
-    30			std::cerr << "DEBUG Failed to connect to "
-    31			          << host_ << ":" << port_ << std::endl;
-    32			std::cerr << "Connection failed (Error: " << e.what() << ')' << std::endl;
-    33			return false;
-    34		}
-    35		return true;
-    36	}
-    37	
-    38	bool ConnectionHandler::getBytes(char bytes[], unsigned int bytesToRead) {
-    39		size_t tmp = 0;
-    40		boost::system::error_code error;
-    41		try {
-    42			lock_guard<std::mutex> lock(socketMutex_);
-    43			while (!error && bytesToRead > tmp) {
-    44				tmp += socket_.read_some(boost::asio::buffer(bytes + tmp, bytesToRead - tmp), error);
-    45			}
-    46			if (error)
-    47				throw boost::system::system_error(error);
-    48		} catch (std::exception &e) {
-    49			std::cerr << "recv failed (Error: " << e.what() << ')' << std::endl;
-    50			return false;
-    51		}
-    52		return true;
-    53	}
-    54	
-    55	bool ConnectionHandler::sendBytes(const char bytes[], int bytesToWrite) {
-    56		int tmp = 0;
-    57		boost::system::error_code error;
-    58		try {
-    59			std::lock_guard<std::mutex> lock(socketMutex_);
-    60			while (!error && bytesToWrite > tmp) {
-    61				tmp += socket_.write_some(boost::asio::buffer(bytes + tmp, bytesToWrite - tmp), error);
-    62			}
-    63			if (error)
-    64				throw boost::system::system_error(error);
-    65		} catch (std::exception &e) {
-    66			std::cerr << "recv failed (Error: " << e.what() << ')' << std::endl;
-    67			return false;
-    68		}
-    69		return true;
-    70	}
-    71	
-    72	bool ConnectionHandler::getLine(std::string &line) {
-    73		return getFrameAscii(line, '\n');
-    74	}
-    75	
-    76	bool ConnectionHandler::sendLine(std::string &line) {
-    77		return sendFrameAscii(line, '\n');
-    78	}
-    79	
-    80	
-    81	bool ConnectionHandler::getFrameAscii(std::string &frame, char delimiter) {
-    82		char ch;
-    83		try {
-    84			do {
-    85				if (!getBytes(&ch, 1)) {
-    86					return false;
-    87				}
-    88				if (ch != '\0')
-    89					frame.append(1, ch);
-    90			} while (delimiter != ch);
-    91		} catch (std::exception &e) {
-    92			std::cerr << "recv failed2 (Error: " << e.what() << ')' << std::endl;
-    93			return false;
-    94		}
-    95		return true;
-    96	}
-    97	
-    98	bool ConnectionHandler::sendFrameAscii(const std::string &frame, char delimiter) {
-    99		bool result = sendBytes(frame.c_str(), frame.length());
-   100		if (!result) return false;
-   101		return sendBytes(&delimiter, 1);
-   102	}
-   103	
-   104	// Close down the connection properly.
-   105	void ConnectionHandler::close() {
-   106		try {
-   107			connected_ = false;
-   108			socket_.close();
-   109		} catch (...) {
-   110			std::cout << "closing failed: connection already closed" << std::endl;
-   111		}
-   112	}
+    11	// constructor: initializes the 'io_service' (the engine) and the 'socket' (the connection object).
+    12	ConnectionHandler::ConnectionHandler(string host, short port) 
+    13	    : host_(host), port_(port), io_service_(), socket_(io_service_), connected_(false) {}
+    14	
+    15	// destructor: ensures the connection is closed when the object is destroyed.
+    16	ConnectionHandler::~ConnectionHandler() {
+    17	    close();
+    18	}
+    19	
+    20	// attempts to connect to the server.
+    21	bool ConnectionHandler::connect() {
+    22	    std::cout << "Starting connect to " << host_ << ":" << port_ << std::endl;
+    23	    try {
+    24	        // Create an endpoint (IP + port) - The "address" of the server application.
+    25	        tcp::endpoint endpoint(boost::asio::ip::address::from_string(host_), port_); 
+    26	        
+    27	        boost::system::error_code error;
+    28	        
+    29	        // try to connect the socket to the endpoint.
+    30	        socket_.connect(endpoint, error);
+    31	        
+    32	        // if the socket reports an error (e.g., server unreachable), throw an exception.
+    33	        if (error)
+    34	            throw boost::system::system_error(error);
+    35	            
+    36	        connected_ = true;
+    37	    }
+    38	    catch (std::exception &e) {
+    39	        std::cerr << "Connection failed (Error: " << e.what() << ')' << std::endl;
+    40	        return false;
+    41	    }
+    42	    return true;
+    43	}
+    44	
+    45	// reads'bytesToRead' bytes from the network.
+    46	// TCP is a stream, we might not get all bytes in one shot, so we loop.
+    47	
+    48	bool ConnectionHandler::getBytes(char bytes[], unsigned int bytesToRead) {
+    49	    size_t tmp = 0; // counts how many bytes we have read so far OUR PROGRESS*****
+    50	    boost::system::error_code error;
+    51	    try {
+    52	        // We lock specifically for reading if multiple threads share this handler (safety)
+    53	        // lock_guard<std::mutex> lock(socketMutex_); 
+    54	        
+    55	        // loop until we have read exactly the amount requested
+    56	        while (!error && bytesToRead > tmp) {
+    57	            // read_some: Read whatever is available currently. 
+    58	            // it puts it in the buffer at position 'bytes + tmp'.
+    59	            // it asks to read 'bytesToRead - tmp' (REMAINING- THings to reads).
+    60	            tmp += socket_.read_some(boost::asio::buffer(bytes + tmp, bytesToRead - tmp), error);
+    61	        }
+    62	        if (error)
+    63	            throw boost::system::system_error(error);
+    64	    } catch (std::exception &e) {
+    65	        std::cerr << "recv failed (Error: " << e.what() << ')' << std::endl;
+    66	        return false;
+    67	    }
+    68	    return true;
+    69	}
+    70	
+    71	// Sends EXACTLY 'bytesToWrite' to the network.
+    72	bool ConnectionHandler::sendBytes(const char bytes[], int bytesToWrite) {
+    73	    int tmp = 0; // OUR PROGRESS****counts how many bytes sent so far*******
+    74	    boost::system::error_code error;
+    75	    try {
+    76	        // lock_guard<std::mutex> lock(socketMutex_);
+    77	        
+    78	        // Loop until all data is sent
+    79	        //meaning temp is <= bytesToWrite meaning we still have more to send
+    80	        while (!error && bytesToWrite > tmp) {
+    81	            // write_some: Sends a chunk of data returns how much was actually sent.
+    82	            //add to temp what we manged to send in this iteration
+    83	            tmp += socket_.write_some(boost::asio::buffer(bytes + tmp, bytesToWrite - tmp), error);
+    84	        }
+    85	        if (error)
+    86	            throw boost::system::system_error(error);
+    87	    } catch (std::exception &e) {
+    88	        std::cerr << "recv failed (Error: " << e.what() << ')' << std::endl;
+    89	        return false;
+    90	    }
+    91	    return true;
+    92	}
+    93	
+    94	//read until '\n' (New Line).
+    95	
+    96	bool ConnectionHandler::getLine(std::string &line) {
+    97	    return getFrameAscii(line, '\n');
+    98	}
+    99	
+   100	// send a string followed by '\n'.
+   101	bool ConnectionHandler::sendLine(std::string &line) {
+   102	    return sendFrameAscii(line, '\n');
+   103	}
+   104	
+   105	// CRITICAL FOR STOMP: Reads byte by byte until it finds the 'delimiter'.
+   106	//  frames end with a null character ('\0').
+   107	bool ConnectionHandler::getFrameAscii(std::string &frame, char delimiter) {
+   108	    char ch;
+   109	    // Try to read 1 byte at a time until we hit the delimiter.
+   110	    try {
+   111	        do {
+   112	            // read 1 byte into 'ch'
+   113	            if (!getBytes(&ch, 1)) {
+   114	                return false; // connection closed or error
+   115	            }
+   116	            // if it's not the delimiter, append it to our result string
+   117	            if (ch != delimiter) 
+   118	                frame.append(1, ch);
+   119	        } while (delimiter != ch);
+   120	    } catch (std::exception &e) {
+   121	        std::cerr << "recv failed2 (Error: " << e.what() << ')' << std::endl;
+   122	        return false;
+   123	    }
+   124	    return true;
+   125	}
+   126	
+   127	//  stomp sends the frame string and appends the delimiter.
+   128	//  send the frame content, then send '\0' .
+   129	bool ConnectionHandler::sendFrameAscii(const std::string &frame, char delimiter) {
+   130	    // Send the actual content
+   131	    bool result = sendBytes(frame.c_str(), frame.length());
+   132	    if (!result) return false;
+   133	    
+   134	    // send the delimiter \0
+   135	    return sendBytes(&delimiter, 1);
+   136	}
+   137	
+   138	//  closes the socket connection.
+   139	void ConnectionHandler::close() {
+   140	    try {
+   141	        connected_ = false;
+   142	        socket_.close();
+   143	    } catch (...) {
+   144	        std::cout << "closing failed: connection already closed" << std::endl;
+   145	    }
+   146	}
 
 
 
@@ -348,7 +382,7 @@
     13	        if (!handler->getFrameAscii(frame, '\0')) {
     14	            break;
     15	        }
-    16	        std::cout << "DEBUG === RECEIVED FRAME ===\n" << frame << "\n==================\n";
+    16	        //std::cout << "DEBUG === RECEIVED FRAME ===\n" << frame << "\n==================\n";
     17	
     18	        if (frame.substr(0, 9) == "CONNECTED") {
     19	            std::cout << "Login successful" << std::endl;
@@ -398,7 +432,7 @@
     63	        std::string command = tokens[0];
     64	        
     65	        if (command == "login") {
-    66	            cout << "DEBUG Attempting to log in..." << std::endl;
+    66	            //cout << "DEBUG Attempting to log in..." << std::endl;
     67	            if (tokens.size() != 4) {
     68	                std::cerr << "Usage: login host:port username password" << std::endl;
     69	                continue;
@@ -436,7 +470,7 @@
    101	            handler->sendFrameAscii(connectFrame, '\0');            
    102	        }
    103	        else if (command == "join") {
-   104	            std::cout << "DEBUG Processing join command" << std::endl;  
+   104	            //std::cout << "DEBUG Processing join command" << std::endl;  
    105	
    106	            if (tokens.size() != 2) {
    107	                std::cerr << "Usage: join game_name" << std::endl;
@@ -455,7 +489,7 @@
    120	            std::string topic = "/" + gameName;
    121	            
    122	            std::string subscribeFrame = handler->getProtocol().buildSubscribeFrame(topic);
-   123	            std::cout << "DEBUG === SENDING SUBSCRIBE ===\n" << subscribeFrame << "\n==================\n";
+   123	            //std::cout << "DEBUG === SENDING SUBSCRIBE ===\n" << subscribeFrame << "\n==================\n";
    124	
    125	            handler->sendFrameAscii(subscribeFrame, '\0');
    126	            
@@ -571,367 +605,318 @@
 
 ===== FILE: ./client/src/StompProtocol.cpp =====
      1	#include "StompProtocol.h"
-     2	#include <sstream>
-     3	#include <fstream>
-     4	#include <iostream>
-     5	#include <algorithm>
+     2	#include <fstream>
+     3	#include <iostream>
+     4	#include <algorithm>
+     5	#include <vector>
      6	
      7	using namespace std;
      8	
-     9	StompProtocol::StompProtocol() 
-    10	    : username(""), password(""), receiptIdCounter(0), 
-    11	      subscriptionIdCounter(0), loggedIn(false) {}
-    12	
-    13	string StompProtocol::generateReceiptId() {
-    14	    lock_guard<mutex> lock(mtx);
-    15	    return to_string(++receiptIdCounter);
-    16	}
-    17	
-    18	string StompProtocol::generateSubscriptionId() {
-    19	    lock_guard<mutex> lock(mtx);
-    20	    return to_string(++subscriptionIdCounter);
-    21	}
-    22	
-    23	string StompProtocol::buildConnectFrame(const string& host, 
-    24	                                        const string& user, 
-    25	                                        const string& pass) {
-    26	    username = user;
-    27	    password = pass;
-    28	    
-    29	    string frame = "";
-    30	    frame.append("CONNECT\n");
-    31	    frame.append("accept-version:1.2\n");
-    32	    frame.append("host:stomp.cs.bgu.ac.il\n");
-    33	    frame.append("login:").append(user).append("\n");
-    34	    frame.append("passcode:").append(pass).append("\n");
-    35	    frame.append("\n");
-    36	    
-    37	    return frame;
-    38	}
-    39	
-    40	string StompProtocol::buildSubscribeFrame(const string& topic) {
-    41	    string subId = generateSubscriptionId();
-    42	    string receiptId = generateReceiptId();
-    43	    
-    44	    {
-    45	        lock_guard<mutex> lock(mtx);
-    46	        subscriptions[subId] = topic;
-    47	    }
+     9	//initializes the protocol state and counters
+    10	StompProtocol::StompProtocol() 
+    11	    : username(""), password(""), receiptIdCounter(0), 
+    12	      subscriptionIdCounter(0), loggedIn(false) {}
+    13	
+    14	//ID Generation Helpers
+    15	
+    16	string StompProtocol::generateReceiptId() {
+    17	    lock_guard<mutex> lock(mtx); //  thread safety
+    18	    return to_string(++receiptIdCounter);
+    19	}
+    20	
+    21	string StompProtocol::generateSubscriptionId() {
+    22	    lock_guard<mutex> lock(mtx); //  thread safety
+    23	    return to_string(++subscriptionIdCounter);
+    24	}
+    25	
+    26	// Frame Builders 
+    27	
+    28	string StompProtocol::buildConnectFrame(const string& host, 
+    29	                                        const string& user, 
+    30	                                        const string& pass) {
+    31	    username = user;
+    32	    password = pass;
+    33	    
+    34	    // Building the frame 
+    35	    string frame = "CONNECT\n";
+    36	    frame += "accept-version:1.2\n";
+    37	    frame += "host:stomp.cs.bgu.ac.il\n";
+    38	    frame += "login:" + user + "\n";
+    39	    frame += "passcode:" + pass + "\n";
+    40	    frame += "\n"; // Empty line marks end of headers
+    41	    
+    42	    return frame;
+    43	}
+    44	
+    45	string StompProtocol::buildSubscribeFrame(const string& topic) {
+    46	    string subId = generateSubscriptionId();
+    47	    string receiptId = generateReceiptId();
     48	    
-    49	    string frame = "";
-    50	    frame.append("SUBSCRIBE\n");
-    51	    frame.append("destination:").append(topic).append("\n");
-    52	    frame.append("id:").append(subId).append("\n");
-    53	    frame.append("receipt:").append(receiptId).append("\n");
-    54	    frame.append("\n");
-    55	    
-    56	    return frame;
-    57	}
-    58	
-    59	string StompProtocol::buildUnsubscribeFrame(const string& subId) {
-    60	    string receiptId = generateReceiptId();
-    61	    
-    62	    string frame = "";
-    63	    frame.append("UNSUBSCRIBE\n");
-    64	    frame.append("id:").append(subId).append("\n");
-    65	    frame.append("receipt:").append(receiptId).append("\n");
-    66	    frame.append("\n");
-    67	    
-    68	    {
-    69	        lock_guard<mutex> lock(mtx);
-    70	        subscriptions.erase(subId);
-    71	    }
-    72	    
-    73	    return frame;
-    74	}
-    75	
-    76	string StompProtocol::buildSendFrame(const string& topic, 
-    77	                                     const Event& event, 
-    78	                                     const string& user) {
-    79	    string frame = "";
-    80	    
-    81	    frame.append("SEND\n");
-    82	    frame.append("destination:").append(topic).append("\n");
-    83	    frame.append("user: ").append(user).append("\n");
-    84	    frame.append("team a: ").append(event.get_team_a_name()).append("\n");
-    85	    frame.append("team b: ").append(event.get_team_b_name()).append("\n");
-    86	    frame.append("event name: ").append(event.get_name()).append("\n");
-    87	    frame.append("time: ").append(to_string(event.get_time())).append("\n");
-    88	    
-    89	    frame.append("\n");
-    90	    
-    91	    frame.append("general game updates:\n");
-    92	    for (auto& kv : event.get_game_updates()) {
-    93	        frame.append(kv.first).append(": ").append(kv.second).append("\n");
-    94	    }
-    95	    
-    96	    frame.append("team a updates:\n");
-    97	    for (auto& kv : event.get_team_a_updates()) {
-    98	        frame.append(kv.first).append(": ").append(kv.second).append("\n");
+    49	    // Map the subscription ID to the topic (Thread Safe)
+    50	    {
+    51	        lock_guard<mutex> lock(mtx);
+    52	        subscriptions[subId] = topic;
+    53	    }
+    54	    
+    55	    string frame = "SUBSCRIBE\n";
+    56	    frame += "destination:" + topic + "\n";
+    57	    frame += "id:" + subId + "\n";
+    58	    frame += "receipt:" + receiptId + "\n";
+    59	    frame += "\n";
+    60	    
+    61	    return frame;
+    62	}
+    63	
+    64	string StompProtocol::buildUnsubscribeFrame(const string& subId) {
+    65	    string receiptId = generateReceiptId();
+    66	    
+    67	    string frame = "UNSUBSCRIBE\n";
+    68	    frame += "id:" + subId + "\n";
+    69	    frame += "receipt:" + receiptId + "\n";
+    70	    frame += "\n";
+    71	    
+    72	    // remove the subscription from our local map
+    73	    {
+    74	        lock_guard<mutex> lock(mtx);
+    75	        subscriptions.erase(subId);
+    76	    }
+    77	    
+    78	    return frame;
+    79	}
+    80	
+    81	string StompProtocol::buildSendFrame(const string& topic, 
+    82	                                     const Event& event, 
+    83	                                     const string& user) {
+    84	    string frame = "SEND\n";
+    85	    frame += "destination:" + topic + "\n";
+    86	    frame += "\n"; // end of Headers
+    87	    
+    88	    // start of Body (Assignment format)
+    89	    frame += "user: " + user + "\n";
+    90	    frame += "team a: " + event.get_team_a_name() + "\n";
+    91	    frame += "team b: " + event.get_team_b_name() + "\n";
+    92	    frame += "event name: " + event.get_name() + "\n";
+    93	    frame += "time: " + to_string(event.get_time()) + "\n";
+    94	    
+    95	    // add General Updates
+    96	    frame += "general game updates:\n";
+    97	    for (auto& kv : event.get_game_updates()) {
+    98	        frame += kv.first + ": " + kv.second + "\n";
     99	    }
    100	    
-   101	    frame.append("team b updates:\n");
-   102	    for (auto& kv : event.get_team_b_updates()) {
-   103	        frame.append(kv.first).append(": ").append(kv.second).append("\n");
-   104	    }
-   105	    
-   106	    // BODY - description
-   107	    frame.append("description:\n").append(event.get_discription()).append("\n");
-   108	    
-   109	    return frame;
-   110	}
-   111	
-   112	string StompProtocol::buildDisconnectFrame() {
-   113	    string receiptId = generateReceiptId();
-   114	    
-   115	    string frame = "";
-   116	    frame.append("DISCONNECT\n");
-   117	    frame.append("receipt:").append(receiptId).append("\n");
-   118	    frame.append("\n");
-   119	    
-   120	    return frame;
-   121	}
-   122	
-   123	void StompProtocol::handleMessageFrame(const string& frame) {
-   124	    istringstream iss(frame);
-   125	    string line;
-   126	    map<string, string> headers;
-   127	    
-   128	    getline(iss, line);
-   129	    
-   130	    while (getline(iss, line) && !line.empty() && line != "\r") {
-   131	        size_t colonPos = line.find(':');
-   132	        if (colonPos != string::npos) {
-   133	            string key = line.substr(0, colonPos);
-   134	            string value = line.substr(colonPos + 1);
-   135	            
-   136	            if (!value.empty() && value[0] == ' ') {
-   137	                value = value.substr(1);
-   138	            }
-   139	            
-   140	            if (!value.empty() && value.back() == '\r') {
-   141	                value.pop_back();
-   142	            }
-   143	            
-   144	            headers[key] = value;
-   145	        }
-   146	    }
-   147	    
-   148	    string bodyStream = "";
-   149	    while (getline(iss, line)) {
-   150	        bodyStream.append(line).append("\n");
-   151	    }
-   152	    
-   153	    std::string user = headers["user"];
-   154	    std::string teamA = headers["team a"];
-   155	    std::string teamB = headers["team b"];
-   156	    std::string gameName = teamA + "_" + teamB;
-   157	    std::string eventName = headers["event name"];
-   158	    std::string timeStr = headers["time"];
-   159	    int time = std::stoi(timeStr);
-   160	    
-   161	    // Parsing BODY to extract game updates
-   162	    std::map<std::string, std::string> gameUpdates;
-   163	    std::map<std::string, std::string> teamAUpdates;
-   164	    std::map<std::string, std::string> teamBUpdates;
-   165	    std::string description = "";
-   166	    
-   167	    std::istringstream bodyStream2(bodyStream);
-   168	    std::string section = "";
-   169	    
-   170	    while (std::getline(bodyStream2, line)) {
-   171	        if (line.find("general game updates:") == 0) {
-   172	            section = "general";
-   173	        } else if (line.find("team a updates:") == 0) {
-   174	            section = "team_a";
-   175	        } else if (line.find("team b updates:") == 0) {
-   176	            section = "team_b";
-   177	        } else if (line.find("description:") == 0) {
-   178	            section = "description";
-   179	
-   180	            std::string descLine;
-   181	            while (std::getline(bodyStream2, descLine)) {
-   182	                description.append(descLine).append("\n");
-   183	            }
-   184	            if (!description.empty() && description.back() == '\n') {
-   185	                description.pop_back();
-   186	            }
-   187	            break;
-   188	        } else if (!line.empty() && line.find(':') != std::string::npos) {
-   189	            size_t colonPos = line.find(':');
-   190	            std::string key = line.substr(0, colonPos);
-   191	            std::string value = line.substr(colonPos + 1);
-   192	            
-   193	            if (!value.empty() && value[0] == ' ') {
-   194	                value = value.substr(1);
-   195	            }
-   196	            if (!value.empty() && value.back() == '\r') {
-   197	                value.pop_back();
-   198	            }
-   199	            
-   200	            if (section == "general") {
-   201	                gameUpdates[key] = value;
-   202	            } else if (section == "team_a") {
-   203	                teamAUpdates[key] = value;
-   204	            } else if (section == "team_b") {
-   205	                teamBUpdates[key] = value;
-   206	            }
-   207	        }
-   208	    }
-   209	    
-   210	    // Creat Event and save
-   211	    Event event(teamA, teamB, eventName, time, 
-   212	                gameUpdates, teamAUpdates, teamBUpdates, description);
-   213	    
-   214	    saveGameEvent(user, gameName, event);
+   101	    // add Team A Updates
+   102	    frame += "team a updates:\n";
+   103	    for (auto& kv : event.get_team_a_updates()) {
+   104	        frame += kv.first + ": " + kv.second + "\n";
+   105	    }
+   106	    
+   107	    // add Team B Updates
+   108	    frame += "team b updates:\n";
+   109	    for (auto& kv : event.get_team_b_updates()) {
+   110	        frame += kv.first + ": " + kv.second + "\n";
+   111	    }
+   112	    
+   113	    // Add Description
+   114	    frame += "description:\n" + event.get_discription() + "\n";
+   115	    
+   116	    return frame;
+   117	}
+   118	
+   119	string StompProtocol::buildDisconnectFrame() {
+   120	    string receiptId = generateReceiptId();
+   121	    
+   122	    string frame = "DISCONNECT\n";
+   123	    frame += "receipt:" + receiptId + "\n";
+   124	    frame += "\n";
+   125	    
+   126	    return frame;
+   127	}
+   128	
+   129	//frame procceing logic
+   130	
+   131	void StompProtocol::handleMessageFrame(const string& frame) {
+   132	    // Variables to store parsed data
+   133	    string user, teamA, teamB, eventName, description;
+   134	    int time = 0;
+   135	    map<string, string> gameUpdates, teamAUpdates, teamBUpdates;
+   136	    
+   137	    string section = ""; // tracks if we are in "general", "team a", or "description"
+   138	    bool inBody = false; // tracks if we passed the headers
+   139	    
+   140	    // manual line splitting using string::find
+   141	    size_t startPos = 0;
+   142	    size_t endPos = frame.find('\n');
+   143	    
+   144	    //until we reach the end of the frame - >endPos != no position
+   145	    while (endPos != string::npos) {
+   146	        // Extract the current line
+   147	        string line = frame.substr(startPos, endPos - startPos);
+   148	        
+   149	        // --- FIX FOR \r (Carriage Return) ---
+   150	        // Windows/Network lines often end in \r\n. We must remove \r 
+   151	        // otherwise comparisons like (line == "description:") will fail.
+   152	        if (!line.empty() && line.back() == '\r') {
+   153	            line.pop_back();
+   154	        }
+   155	        
+   156	        // --- HEADER SKIP LOGIC ---
+   157	        // The body starts after the first empty line.
+   158	        if (!inBody) {
+   159	            if (line.empty()) {
+   160	                inBody = true; // Found the empty line, Body starts next
+   161	            }
+   162	            // Move to next line
+   163	            startPos = endPos + 1;
+   164	            endPos = frame.find('\n', startPos);
+   165	            continue; 
+   166	        }
+   167	        
+   168	        // --- BODY PARSING LOGIC ---
+   169	        
+   170	        //  data Fields
+   171	        if (line.find("user: ") == 0) user = line.substr(6);
+   172	        else if (line.find("team a: ") == 0) teamA = line.substr(8);
+   173	        else if (line.find("team b: ") == 0) teamB = line.substr(8);
+   174	        else if (line.find("event name: ") == 0) eventName = line.substr(12);
+   175	        else if (line.find("time: ") == 0) {
+   176	            try { time = stoi(line.substr(6)); } catch (...) { time = 0; }
+   177	        }
+   178	        
+   179	        // Section Detection
+   180	        else if (line == "general game updates:") section = "general";
+   181	        else if (line == "team a updates:") section = "team_a";
+   182	        else if (line == "team b updates:") section = "team_b";
+   183	        else if (line == "description:") {
+   184	            section = "description";
+   185	            // Once we hit description, everything else is the description text.
+   186	            // We read until the end of the frame string manually.
+   187	            if (endPos + 1 < frame.length()) {
+   188	                description = frame.substr(endPos + 1);
+   189	                // Clean \r from description if needed (optional but good practice)
+   190	                // Note: This takes the rest of the frame as description.
+   191	            }
+   192	            break; // Stop loop, we handled the rest as description
+   193	        }
+   194	        
+   195	        // 3. Key-Value Parsing (inside a section)
+   196	        else if (!line.empty()) {
+   197	            size_t colonPos = line.find(':');
+   198	            if (colonPos != string::npos) {
+   199	                string key = line.substr(0, colonPos);
+   200	                string value = line.substr(colonPos + 1);
+   201	                
+   202	                // Trim leading space from value
+   203	                if (!value.empty() && value[0] == ' ') value = value.substr(1);
+   204	                
+   205	                if (section == "general") gameUpdates[key] = value;
+   206	                else if (section == "team_a") teamAUpdates[key] = value;
+   207	                else if (section == "team_b") teamBUpdates[key] = value;
+   208	            }
+   209	        }
+   210	        
+   211	        // Move to next line
+   212	        startPos = endPos + 1;
+   213	        endPos = frame.find('\n', startPos);
+   214	    }
    215	    
-   216	    // Print to console
-   217	    std::cout << user << " - " << gameName << ":\n";
-   218	    std::cout << eventName << "\n\n";
-   219	    std::cout << description << "\n" << std::endl;
-   220	}
-   221	
-   222	void StompProtocol::saveGameEvent(const string& user, 
-   223	                                  const string& gameName, 
-   224	                                  const Event& event) {
-   225	    lock_guard<mutex> lock(mtx);
-   226	    
-   227	    if (gameReports[user].find(gameName) == gameReports[user].end()) {
-   228	        gameReports[user][gameName] = names_and_events();
-   229	        
-   230	        // Extract team names from gameName (format: "USA_Canada")
-   231	        size_t underscorePos = gameName.find('_');
-   232	        if (underscorePos != string::npos) {
-   233	            gameReports[user][gameName].team_a_name = gameName.substr(0, underscorePos);
-   234	            gameReports[user][gameName].team_b_name = gameName.substr(underscorePos + 1);
-   235	        }
-   236	    }
-   237	    
-   238	    // Add event
-   239	    gameReports[user][gameName].events.push_back(event);
-   240	}
-   241	
-   242	void StompProtocol::generateSummary(const string& gameName, 
-   243	                                    const string& user, 
-   244	                                    const string& outputFile) {
-   245	    ofstream out(outputFile);
-   246	    
-   247	    if (!out.is_open()) {
-   248	        cerr << "Cannot open file: " << outputFile << endl;
-   249	        return;
-   250	    }
-   251	    
-   252	    // Find reports for this game and user
-   253	    auto userIt = gameReports.find(user);
-   254	    if (userIt == gameReports.end()) {
-   255	        out << "No reports found for user " << user << endl;
-   256	        out.close();
-   257	        cout << "Summary written to " << outputFile << endl;
-   258	        return;
-   259	    }
-   260	    
-   261	    auto gameIt = userIt->second.find(gameName);
-   262	    if (gameIt == userIt->second.end()) {
-   263	        out << "No reports found for game " << gameName << endl;
-   264	        out.close();
-   265	        cout << "Summary written to " << outputFile << endl;
-   266	        return;
-   267	    }
-   268	    
-   269	    names_and_events& nae = gameIt->second;
-   270	    
-   271	    // Header (assignment format)
-   272	    out << nae.team_a_name << " vs " << nae.team_b_name << "\n";
-   273	    out << "Game stats:\n";
-   274	    out << "General stats:\n";
-   275	    
-   276	    // Aggregate general stats from all events
-   277	    map<string, string> generalStats;
-   278	    for (const Event& event : nae.events) {
-   279	        for (auto& kv : event.get_game_updates()) {
-   280	            generalStats[kv.first] = kv.second;  // Last value wins
-   281	        }
-   282	    }
-   283	    
-   284	    // Print general stats (lexicographic order)
-   285	    for (auto& kv : generalStats) {
-   286	        out << kv.first << ": " << kv.second << "\n";
-   287	    }
-   288	    
-   289	    // Team A stats
-   290	    out << nae.team_a_name << " stats:\n";
-   291	    map<string, string> teamAStats;
-   292	    for (const Event& event : nae.events) {
-   293	        for (auto& kv : event.get_team_a_updates()) {
-   294	            teamAStats[kv.first] = kv.second;
-   295	        }
-   296	    }
-   297	    for (auto& kv : teamAStats) {
-   298	        out << kv.first << ": " << kv.second << "\n";
-   299	    }
-   300	    
-   301	    // Team B stats
-   302	    out << nae.team_b_name << " stats:\n";
-   303	    map<string, string> teamBStats;
-   304	    for (const Event& event : nae.events) {
-   305	        for (auto& kv : event.get_team_b_updates()) {
-   306	            teamBStats[kv.first] = kv.second;
-   307	        }
-   308	    }
-   309	    for (auto& kv : teamBStats) {
-   310	        out << kv.first << ": " << kv.second << "\n";
+   216	    // save and display
+   217	    string gameName = teamA + "_" + teamB;
+   218	    Event event(teamA, teamB, eventName, time, 
+   219	                gameUpdates, teamAUpdates, teamBUpdates, description);
+   220	    
+   221	    saveGameEvent(user, gameName, event);
+   222	    
+   223	    // Output to console
+   224	    cout << "Displaying update from user: " << user << "\n";
+   225	    cout << "Game: " << gameName << "\n";
+   226	    cout << "Event: " << eventName << "\n";
+   227	    cout << description << "\n" << endl;
+   228	}
+   229	
+   230	// data Management: Saves the event to the map
+   231	void StompProtocol::saveGameEvent(const string& user, 
+   232	                                  const string& gameName, 
+   233	                                  const Event& event) {
+   234	    lock_guard<mutex> lock(mtx); // Critical section: protecting the map
+   235	    
+   236	    // If the game entry doesn't exist for this user, CREATE it
+   237	    if (gameReports[user].find(gameName) == gameReports[user].end()) {
+   238	        gameReports[user][gameName] = names_and_events();
+   239	        gameReports[user][gameName].team_a_name = event.get_team_a_name();
+   240	        gameReports[user][gameName].team_b_name = event.get_team_b_name();
+   241	    }
+   242	    
+   243	    // Add the event to the list
+   244	    gameReports[user][gameName].events.push_back(event);
+   245	}
+   246	
+   247	// generates the final summary file
+   248	void StompProtocol::generateSummary(const string& gameName, 
+   249	                                    const string& user, 
+   250	                                    const string& outputFile) {
+   251	    // Check if data exists
+   252	    if (gameReports.find(user) == gameReports.end() || 
+   253	        gameReports[user].find(gameName) == gameReports[user].end()) {
+   254	        cerr << "No reports found for game " << gameName << endl;
+   255	        return;
+   256	    }
+   257	    
+   258	    names_and_events& reportData = gameReports[user][gameName];
+   259	    
+   260	    // Open File
+   261	    ofstream out(outputFile);
+   262	    if (!out.is_open()) {
+   263	        cerr << "Cannot open file: " << outputFile << endl;
+   264	        return;
+   265	    }
+   266	    
+   267	    //Statistics 
+   268	    map<string, string> generalStats;
+   269	    map<string, string> teamAStats;
+   270	    map<string, string> teamBStats;
+   271	    
+   272	    for (const Event& event : reportData.events) {
+   273	        for (auto& kv : event.get_game_updates()) generalStats[kv.first] = kv.second;
+   274	        for (auto& kv : event.get_team_a_updates()) teamAStats[kv.first] = kv.second;
+   275	        for (auto& kv : event.get_team_b_updates()) teamBStats[kv.first] = kv.second;
+   276	    }
+   277	    
+   278	    // Write to File
+   279	    out << reportData.team_a_name << " vs " << reportData.team_b_name << "\n";
+   280	    out << "Game stats:\n";
+   281	    
+   282	    out << "General stats:\n";
+   283	    for (auto& kv : generalStats) out << kv.first << ": " << kv.second << "\n";
+   284	    
+   285	    out << reportData.team_a_name << " stats:\n";
+   286	    for (auto& kv : teamAStats) out << kv.first << ": " << kv.second << "\n";
+   287	    
+   288	    out << reportData.team_b_name << " stats:\n";
+   289	    for (auto& kv : teamBStats) out << kv.first << ": " << kv.second << "\n";
+   290	    
+   291	    out << "Game event reports:\n";
+   292	    // (Ideally, sort events by time here before printing, 
+   293	    // keeping simplistic as per request for "simplification")
+   294	    for (const Event& event : reportData.events) {
+   295	        out << event.get_time() << " - " << event.get_name() << ":\n\n";
+   296	        out << event.get_discription() << "\n\n\n";
+   297	    }
+   298	    
+   299	    out.close();
+   300	    cout << "Summary written to " << outputFile << endl;
+   301	}
+   302	
+   303	// Utility: Find Subscription ID by Topic
+   304	string StompProtocol::getSubscriptionIdByTopic(const string& topic) {
+   305	    lock_guard<mutex> lock(mtx);
+   306	
+   307	    for(auto const& [id,subTopic]: subscriptions) {
+   308	        if(subTopic == topic) {
+   309	            return id;
+   310	        }
    311	    }
-   312	    
-   313	    // Game event reports
-   314	    out << "\nGame event reports:\n";
-   315	    
-   316	    // Sort events by time (handling halftime)
-   317	    vector<Event> sortedEvents = nae.events;
-   318	    sort(sortedEvents.begin(), sortedEvents.end(), 
-   319	         [](const Event& a, const Event& b) {
-   320	             // If one is "halftime", handle specially
-   321	             bool aBeforeHalftime = true;
-   322	             bool bBeforeHalftime = true;
-   323	             
-   324	             // Check if events have "before halftime" in game_updates
-   325	             auto aUpdates = a.get_game_updates();
-   326	             auto bUpdates = b.get_game_updates();
-   327	             
-   328	             if (aUpdates.find("before halftime") != aUpdates.end()) {
-   329	                 aBeforeHalftime = (aUpdates.at("before halftime") == "true");
-   330	             }
-   331	             
-   332	             if (bUpdates.find("before halftime") != bUpdates.end()) {
-   333	                 bBeforeHalftime = (bUpdates.at("before halftime") == "true");
-   334	             }
-   335	             
-   336	             // If one is before halftime and the other is after
-   337	             if (aBeforeHalftime && !bBeforeHalftime) return true;
-   338	             if (!aBeforeHalftime && bBeforeHalftime) return false;
-   339	             
-   340	             // Otherwise sort by time
-   341	             return a.get_time() < b.get_time();
-   342	         });
-   343	    
-   344	    // Print events
-   345	    for (const Event& event : sortedEvents) {
-   346	        out << event.get_time() << " - " << event.get_name() << ":\n";
-   347	        out << event.get_discription() << "\n\n";
-   348	    }
-   349	    
-   350	    out.close();
-   351	    cout << "Summary written to " << outputFile << endl;
-   352	}
-   353	string StompProtocol::getSubscriptionIdByTopic(const string& topic) {
-   354	    lock_guard<mutex> lock(mtx);
-   355	    
-   356	    for (auto const& [id, subTopic] : subscriptions) {
-   357	        if (subTopic == topic) {
-   358	            return id; 
-   359	        }
-   360	    }
-   361	    return ""; 
-   362	}
+   312	    return "";
+   313	}
 
 
 
@@ -939,62 +924,79 @@
      1	#include <stdlib.h>
      2	#include "../include/ConnectionHandler.h"
      3	
-     4	/**
-     5	* This code assumes that the server replies the exact text the client sent it (as opposed to the practical session example)
-     6	*/
-     7	int main (int argc, char *argv[]) {
-     8	    if (argc < 3) {
-     9	        std::cerr << "Usage: " << argv[0] << " host port" << std::endl << std::endl;
-    10	        return -1;
-    11	    }
-    12	    std::string host = argv[1];
-    13	    short port = atoi(argv[2]);
-    14	    
-    15	    ConnectionHandler connectionHandler(host, port);
-    16	    if (!connectionHandler.connect()) {
-    17	        std::cerr << "Cannot connect to " << host << ":" << port << std::endl;
-    18	        return 1;
-    19	    }
-    20		
-    21		//From here we will see the rest of the ehco client implementation:
-    22	    while (1) {
-    23	        const short bufsize = 1024;
-    24	        char buf[bufsize];
-    25	        std::cin.getline(buf, bufsize);
-    26			std::string line(buf);
-    27			int len=line.length();
-    28	        if (!connectionHandler.sendLine(line)) {
-    29	            std::cout << "Disconnected. Exiting...\n" << std::endl;
-    30	            break;
-    31	        }
-    32			// connectionHandler.sendLine(line) appends '\n' to the message. Therefor we send len+1 bytes.
-    33	        std::cout << "Sent " << len+1 << " bytes to server" << std::endl;
+     4	
+     5	/**
+     6	* this code assumes that the server replies the exact text the client sent it
+     7	*/
+     8	int main (int argc, char *argv[]) {
+     9	   
+    10	    //check if user sended enough arguments
+    11	    if (argc < 3) {
+    12	        cerr << "Usage: " << argv[0] << " host port" << endl << endl;
+    13	        return -1;
+    14	    }
+    15	    //saving host and port from arguments
+    16	    string host = argv[1];
+    17	    short port = atoi(argv[2]); //use atoi to convert from string to short
+    18	    
+    19	
+    20	    //createing connection handler to talk with the server
+    21	    ConnectionHandler connectionHandler(host, port);
+    22	
+    23	    //trying to connect to server
+    24	    if (!connectionHandler.connect()) {
+    25	        cerr << "Cannot connect to " << host << ":" << port << endl;
+    26	        return 1;
+    27	    }
+    28		
+    29		//from here we will see the rest of the ehco client implementation:
+    30	    while (1) {
+    31	        const short bufsize = 1024;
+    32	        char buf[bufsize];
+    33	
     34	
-    35	 
-    36	        // We can use one of three options to read data from the server:
-    37	        // 1. Read a fixed number of characters
-    38	        // 2. Read a line (up to the newline character using the getline() buffered reader
-    39	        // 3. Read up to the null character
-    40	        std::string answer;
-    41	        // Get back an answer: by using the expected number of bytes (len bytes + newline delimiter)
-    42	        // We could also use: connectionHandler.getline(answer) and then get the answer without the newline char at the end
-    43	        if (!connectionHandler.getLine(answer)) {
-    44	            std::cout << "Disconnected. Exiting...\n" << std::endl;
+    35	        //read a line from the keyboard and puts \0 at the end of buf (without \n becuse we use getline and not cin)
+    36	        cin.getline(buf, bufsize);
+    37			string line(buf); //create line from buf
+    38			int len=line.length();
+    39	
+    40	
+    41	
+    42	        //send the line to the server with the \n at the end (Automaticlly added in sendLine() function)
+    43	        if (!connectionHandler.sendLine(line)) {
+    44	            cout << "Disconnected. Exiting...\n" << endl;
     45	            break;
     46	        }
-    47	        
-    48			len=answer.length();
-    49			// A C string must end with a 0 char delimiter.  When we filled the answer buffer from the socket
-    50			// we filled up to the \n char - we must make sure now that a 0 char is also present. So we truncate last character.
-    51	        answer.resize(len-1);
-    52	        std::cout << "Reply: " << answer << " " << len << " bytes " << std::endl << std::endl;
-    53	        if (answer == "bye") {
-    54	            std::cout << "Exiting...\n" << std::endl;
-    55	            break;
-    56	        }
-    57	    }
-    58	    return 0;
-    59	}
+    47			//again connectionHandler.sendLine(line) appends '\n' to the message. Therefor we send len+1 bytes.
+    48	        cout << "Sent " << len+1 << " bytes to server" << endl;
+    49	
+    50	        
+    51	        // we can use one of three options to read data from the server:
+    52	        //  read a fixed number of characters
+    53	        //  read a line (up to the newline character using the getline() buffered reader
+    54	        //  read up to the null character
+    55	        string answer;
+    56	        // get back an answer: by using the expected number of bytes (len bytes + newline delimiter)
+    57	        // we could also use: connectionHandler.getline(answer) and then get the answer without the newline char at the end
+    58	        
+    59	        //Waiting for the answer from the server blocking the client until we get the answer
+    60	        if (!connectionHandler.getLine(answer)) {
+    61	            cout << "Disconnected. Exiting...\n" << std::endl;
+    62	            break;
+    63	        }
+    64	        
+    65			len=answer.length();
+    66			// a C string must end with a 0 char delimiter.  When we filled the answer buffer from the socket
+    67			// we filled up to the \n char - we must make sure now that a 0 char is also present. So we truncate last character.
+    68	        answer.resize(len-1);
+    69	        cout << "Reply: " << answer << " " << len << " bytes " << std::endl << std::endl;
+    70	        if (answer == "bye") {
+    71	            cout << "Exiting...\n" << std::endl;
+    72	            break;
+    73	        }
+    74	    }
+    75	    return 0;
+    76	}
 
 
 
@@ -2291,37 +2293,38 @@
      9	    @Override
     10	    public StompFrame decodeNextByte(byte nextByte) {
     11	        if(nextByte == '\0'){
-    12	            return popMessage();
-    13	        }
-    14	        pushByte(nextByte);
-    15	        return null;
-    16	    }
-    17	
-    18	    private void pushByte(byte nextByte) {
-    19	        if (len >= MAX_MESSAGE_SIZE) {
-    20	            throw new RuntimeException("Message size limit exceeded");
-    21	        }
-    22	        // if needed, resize the array
-    23	        if (len >= bytes.length) {
-    24	            //double the size of the array
-    25	            bytes = java.util.Arrays.copyOf(bytes, len * 2);
-    26	        }
-    27	        bytes[len++] = nextByte;   
-    28	    }
-    29	    // when we get here we have a full message
-    30	    private StompFrame popMessage() {
-    31	        String message = new String(bytes,0,len, java.nio.charset.StandardCharsets.UTF_8);
-    32	        len = 0;
-    33	        return StompFrame.fromString(message);
-    34	    }
-    35	
-    36	    @Override
-    37	    public byte[] encode(StompFrame message) {
-    38	        StringBuilder strMessage = new StringBuilder(message.toString());
-    39	        strMessage.append('\0');
-    40	        return strMessage.toString().getBytes(java.nio.charset.StandardCharsets.UTF_8);
-    41	    }
-    42	}
+    12	            System.err.println("\n DEBUG: Decoder found NULL char. Buffer len: " + len);
+    13	            return popMessage();
+    14	        }
+    15	        pushByte(nextByte);
+    16	        return null;
+    17	    }
+    18	
+    19	    private void pushByte(byte nextByte) {
+    20	        if (len >= MAX_MESSAGE_SIZE) {
+    21	            throw new RuntimeException("Message size limit exceeded");
+    22	        }
+    23	        // if needed, resize the array
+    24	        if (len >= bytes.length) {
+    25	            //double the size of the array
+    26	            bytes = java.util.Arrays.copyOf(bytes, len * 2);
+    27	        }
+    28	        bytes[len++] = nextByte;   
+    29	    }
+    30	    // when we get here we have a full message
+    31	    private StompFrame popMessage() {
+    32	        String message = new String(bytes,0,len, java.nio.charset.StandardCharsets.UTF_8);
+    33	        len = 0;
+    34	        return StompFrame.fromString(message);
+    35	    }
+    36	
+    37	    @Override
+    38	    public byte[] encode(StompFrame message) {
+    39	        StringBuilder strMessage = new StringBuilder(message.toString());
+    40	        strMessage.append('\0');
+    41	        return strMessage.toString().getBytes(java.nio.charset.StandardCharsets.UTF_8);
+    42	    }
+    43	}
 
 
 
@@ -2353,242 +2356,250 @@
     25	    }
     26	    @Override
     27	    public StompFrame process(StompFrame frame) {
-    28	        String command = frame.getCommand();
-    29	        // Check if user is logged in for commands other than CONNECT
-    30	        if(!isLoggedIn && !command.equals("CONNECT")) {
-    31	            sendError(frame, "User not logged in", "You must log in before sending other commands.");
-    32	        }
-    33	        else{
-    34	            switch (command) {
-    35	                case "CONNECT":
-    36	                    handleConnect(frame);
-    37	                    break;
-    38	                case "SEND":
-    39	                    handleSend(frame);
-    40	                    break;
-    41	                case "SUBSCRIBE":
-    42	                    handleSubscribe(frame);
-    43	                    break;
-    44	                case "UNSUBSCRIBE":
-    45	                    handleUnsubscribe(frame);
-    46	                    break;
-    47	                case "DISCONNECT":
-    48	                    handleDisconnect(frame);
-    49	                    break;
-    50	                default:
-    51	                    sendError(frame, "Unknown command", "The command '" + command + "' is not recognized.");
-    52	                    shouldTerminate = true;
-    53	                    break;
-    54	        }
-    55	    }
-    56	    return null;
-    57	}
-    58	
-    59	    private void handleDisconnect(StompFrame frame) {
-    60	        if (!isLoggedIn) {
-    61	            sendError(frame, "Not logged in", "You must be logged in to disconnect.");
-    62	            return;
-    63	        }
-    64	
-    65	        String receipt = frame.getHeader("receipt");
-    66	        if (receipt != null) {
-    67	            sendReceipt(receipt);
-    68	        }
-    69	
-    70	        // Perform logout
-    71	        Database.getInstance().logout(connectionId);
-    72	        this.shouldTerminate = true;
-    73	    }
-    74	    private void handleUnsubscribe(StompFrame frame) {
-    75	        if (!isLoggedIn) {
-    76	            sendError(frame, "Not logged in", "You must be logged in to unsubscribe.");
-    77	            return;
-    78	        }
-    79	
-    80	        String requestId = frame.getHeader("id");
+    28	        System.out.println(" DEBUG [SERVER RCV from " + connectionId + "]:\n" + frame.toString());
+    29	        System.out.println("----------------------------------------");
+    30	        String command = frame.getCommand();
+    31	        // Check if user is logged in for commands other than CONNECT
+    32	        if(!isLoggedIn && !command.equals("CONNECT")) {
+    33	            sendError(frame, "User not logged in", "You must log in before sending other commands.");
+    34	        }
+    35	        else{
+    36	            switch (command) {
+    37	                case "CONNECT":
+    38	                    handleConnect(frame);
+    39	                    break;
+    40	                case "SEND":
+    41	                    handleSend(frame);
+    42	                    break;
+    43	                case "SUBSCRIBE":
+    44	                    handleSubscribe(frame);
+    45	                    break;
+    46	                case "UNSUBSCRIBE":
+    47	                    handleUnsubscribe(frame);
+    48	                    break;
+    49	                case "DISCONNECT":
+    50	                    handleDisconnect(frame);
+    51	                    break;
+    52	                default:
+    53	                    sendError(frame, "Unknown command", "The command '" + command + "' is not recognized.");
+    54	                    shouldTerminate = true;
+    55	                    break;
+    56	        }
+    57	    }
+    58	    return null;
+    59	}
+    60	
+    61	    private void handleDisconnect(StompFrame frame) {
+    62	        if (!isLoggedIn) {
+    63	            sendError(frame, "Not logged in", "You must be logged in to disconnect.");
+    64	            return;
+    65	        }
+    66	
+    67	        String receipt = frame.getHeader("receipt");
+    68	        if (receipt != null) {
+    69	            sendReceipt(receipt);
+    70	        }
+    71	
+    72	        // Perform logout
+    73	        Database.getInstance().logout(connectionId);
+    74	        this.shouldTerminate = true;
+    75	    }
+    76	    private void handleUnsubscribe(StompFrame frame) {
+    77	        if (!isLoggedIn) {
+    78	            sendError(frame, "Not logged in", "You must be logged in to unsubscribe.");
+    79	            return;
+    80	        }
     81	
-    82	        if (requestId == null || requestId.isEmpty()) {
-    83	            sendError(frame, "Malformed UNSUBSCRIBE", "Missing 'id' header.");
-    84	            return;
-    85	        }
-    86	        // Check if subscribed with the given id
-    87	        String destination = subscriptions.remove(requestId);
-    88	        if (destination == null) {
-    89	            sendError(frame, "Subscription not found", "No active subscription found with ID: " + requestId);
-    90	            return;
-    91	        }
-    92	
-    93	        connections.unsubscribe(destination, connectionId, requestId);
+    82	        String requestId = frame.getHeader("id");
+    83	
+    84	        if (requestId == null || requestId.isEmpty()) {
+    85	            sendError(frame, "Malformed UNSUBSCRIBE", "Missing 'id' header.");
+    86	            return;
+    87	        }
+    88	        // Check if subscribed with the given id
+    89	        String destination = subscriptions.remove(requestId);
+    90	        if (destination == null) {
+    91	            sendError(frame, "Subscription not found", "No active subscription found with ID: " + requestId);
+    92	            return;
+    93	        }
     94	
-    95	        // Handle receipt if requested
-    96	        String receipt = frame.getHeader("receipt");
-    97	        if (receipt != null) {
-    98	            sendReceipt(receipt);
-    99	        }
-   100	    }
-   101	    private void handleSubscribe(StompFrame frame) {
-   102	        System.err.println("DEBUG Handling SUBSCRIBE frame");
-   103	        if (!isLoggedIn) {
-   104	            sendError(frame, "Not logged in", "You must be logged in to subscribe.");
-   105	            return;
-   106	        }
-   107	
-   108	        String destination = frame.getHeader("destination");
-   109	        String requestId = frame.getHeader("id");
-   110	
-   111	        if (destination == null || destination.isEmpty() || requestId == null || requestId.isEmpty()) {
-   112	            sendError(frame, "Malformed SUBSCRIBE", "Missing 'destination' or 'id' header.");            return;
-   113	        }
-   114	
-   115	        // Check if already subscribed with the same id
-   116	        if (subscriptions.containsKey(requestId)) {
-   117	            sendError(frame, "Already subscribed", "You are already subscribed with id '" + requestId + "'.");
-   118	            return;
-   119	        }
-   120	
-   121	        subscriptions.put(requestId, destination);
-   122	        
-   123	        connections.subscribe(destination, connectionId, requestId);
-   124	
-   125	        // Handle receipt if requested
-   126	        String receipt = frame.getHeader("receipt");
-   127	        if (receipt != null) {
-   128	            sendReceipt(receipt);
-   129	        }
-   130	    }
-   131	    private void handleSend(StompFrame frame) {
-   132	        if (!isLoggedIn) {
-   133	            sendError(frame, "Not logged in", "You must be logged in to send messages.");
-   134	            return;
-   135	        }
-   136	
-   137	        String destination = frame.getHeader("destination");
-   138	        if (destination == null || destination.isEmpty()) {
-   139	            sendError(frame, "Missing destination", "SEND frame must include a destination header.");
-   140	            return;
-   141	        }
-   142	
-   143	        if (!subscriptions.containsValue(destination)) {
-   144	            sendError(frame, "Not subscribed", "You cannot send to '" + destination + "' without subscribing first.");
-   145	            return;
-   146	        }
-   147	
-   148	        /*// Track file upload if 'file-name' header is present
-   149	        String filename = frame.getHeader("file-name"); 
-   150	        if (filename != null) {
-   151	            Database.getInstance().trackFileUpload(currentUser, filename, destination);
-   152	        }*/
-   153	
-   154	        StompFrame messageFrame = new StompFrame("MESSAGE");
-   155	        messageFrame.addHeader("destination", destination);
-   156	        messageFrame.addHeader("message-id", String.valueOf(messageIdCounter.incrementAndGet()));
-   157	        // Copy the body and content (Game updates, user, team names, etc.)
-   158	        // We don't validate them, we just pass them through.
-   159	        messageFrame.setBody(frame.getBody());
-   160	
-   161	        // Send the MESSAGE frame (not the SEND frame)
-   162	        connections.send(destination, messageFrame);
-   163	
-   164	        // Handle receipt if requested
-   165	        String receipt = frame.getHeader("receipt");
-   166	        if (receipt != null) {
-   167	            sendReceipt(receipt);
-   168	        }
-   169	}
-   170	    private void handleConnect(StompFrame frame) {
-   171	        if(isLoggedIn) {
-   172	            sendError(frame, "Already logged in", "You are already logged in.");
-   173	            return;
-   174	        }
-   175	        String username = frame.getHeader("login");
-   176	        String passcode = frame.getHeader("passcode");
-   177	        String acceptVersion = frame.getHeader("accept-version");
-   178	        String host = frame.getHeader("host");
-   179	
-   180	        if (username == null || passcode == null || host == null) {
-   181	            sendError(frame, "Missing credentials", "Login or passcode header is missing.");
-   182	            return;
-   183	        }
-   184	        
-   185	        LoginStatus status = Database.getInstance().login(connectionId, username, passcode);
-   186	        switch (status) {
-   187	            case LOGGED_IN_SUCCESSFULLY:
-   188	            case ADDED_NEW_USER:
-   189	                this.currentUser = username;
-   190	                sendConnectedFrame();
-   191	                break;
-   192	            case CLIENT_ALREADY_CONNECTED:
-   193	                sendError(frame, "Client already connected", "This client is already connected.");
-   194	                break;
-   195	            case ALREADY_LOGGED_IN:
-   196	                sendError(frame, "Already logged in", "This user is already logged in.");
-   197	                break;
-   198	            case WRONG_PASSWORD:
-   199	                sendError(frame, "Wrong password", "The passcode you entered is incorrect.");
-   200	                break;
-   201	            default:
-   202	                sendError(frame, "Login failed", "Login failed due to unknown reasons.");
-   203	                break;
-   204	        }
-   205	    }
-   206	    @Override
-   207	    public boolean shouldTerminate() {
-   208	        return shouldTerminate;
-   209	    }
-   210	    private void sendConnectedFrame() {
-   211	        this.isLoggedIn = true;
-   212	        StompFrame connectedFrame = new StompFrame("CONNECTED");
-   213	        connectedFrame.addHeader("version", "1.2");
-   214	        connections.send(connectionId, connectedFrame);
-   215	    }
-   216	/**
-   217	 * Sends a RECEIPT frame to acknowledge that a command with a receipt header was processed.
-   218	 * @param receiptId The receipt ID from the original frame's receipt header.
-   219	 */
-   220	private void sendReceipt(String receiptId) {
-   221	    StompFrame receiptFrame = new StompFrame("RECEIPT");
-   222	    receiptFrame.addHeader("receipt-id", receiptId);
-   223	    connections.send(connectionId, receiptFrame);
-   224	}
-   225	
-   226	/**
-   227	 * Sends an ERROR frame in the specific format required by the assignment and closes the connection.
-   228	 * * @param faultyFrame The original frame that caused the error (used to extract receipt-id and print in body).
-   229	 * @param messageHeader A short description of the error (goes into the 'message' header).
-   230	 * @param detailedInfo A detailed explanation (goes into the body).
-   231	 */
-   232	private void sendError(StompFrame faultyFrame, String messageHeader, String detailedInfo) {
-   233	    StompFrame errorFrame = new StompFrame("ERROR");
-   234	
-   235	    errorFrame.addHeader("message", messageHeader);
+    95	        connections.unsubscribe(destination, connectionId, requestId);
+    96	
+    97	        // Handle receipt if requested
+    98	        String receipt = frame.getHeader("receipt");
+    99	        if (receipt != null) {
+   100	            sendReceipt(receipt);
+   101	        }
+   102	    }
+   103	    private void handleSubscribe(StompFrame frame) {
+   104	        System.err.println("DEBUG Handling SUBSCRIBE frame");
+   105	        if (!isLoggedIn) {
+   106	            sendError(frame, "Not logged in", "You must be logged in to subscribe.");
+   107	            return;
+   108	        }
+   109	
+   110	        String destination = frame.getHeader("destination");
+   111	        String requestId = frame.getHeader("id");
+   112	
+   113	        if (destination == null || destination.isEmpty() || requestId == null || requestId.isEmpty()) {
+   114	            sendError(frame, "Malformed SUBSCRIBE", "Missing 'destination' or 'id' header.");            return;
+   115	        }
+   116	
+   117	        // Check if already subscribed with the same id
+   118	        if (subscriptions.containsKey(requestId)) {
+   119	            sendError(frame, "Already subscribed", "You are already subscribed with id '" + requestId + "'.");
+   120	            return;
+   121	        }
+   122	
+   123	        subscriptions.put(requestId, destination);
+   124	        
+   125	        connections.subscribe(destination, connectionId, requestId);
+   126	
+   127	        // Handle receipt if requested
+   128	        String receipt = frame.getHeader("receipt");
+   129	        if (receipt != null) {
+   130	            sendReceipt(receipt);
+   131	        }
+   132	    }
+   133	    private void handleSend(StompFrame frame) {
+   134	        if (!isLoggedIn) {
+   135	            sendError(frame, "Not logged in", "You must be logged in to send messages.");
+   136	            return;
+   137	        }
+   138	
+   139	        String destination = frame.getHeader("destination");
+   140	        if (destination == null || destination.isEmpty()) {
+   141	            sendError(frame, "Missing destination", "SEND frame must include a destination header.");
+   142	            return;
+   143	        }
+   144	
+   145	        if (!subscriptions.containsValue(destination)) {
+   146	            sendError(frame, "Not subscribed", "You cannot send to '" + destination + "' without subscribing first.");
+   147	            return;
+   148	        }
+   149	
+   150	        /*// Track file upload if 'file-name' header is present
+   151	        String filename = frame.getHeader("file-name"); 
+   152	        if (filename != null) {
+   153	            Database.getInstance().trackFileUpload(currentUser, filename, destination);
+   154	        }*/
+   155	
+   156	        StompFrame messageFrame = new StompFrame("MESSAGE");
+   157	        messageFrame.addHeader("destination", destination);
+   158	        messageFrame.addHeader("message-id", String.valueOf(messageIdCounter.incrementAndGet()));
+   159	        // Copy the body and content (Game updates, user, team names, etc.)
+   160	        // We don't validate them, we just pass them through.
+   161	        messageFrame.setBody(frame.getBody());
+   162	
+   163	        // Send the MESSAGE frame (not the SEND frame)
+   164	        connections.send(destination, messageFrame);
+   165	
+   166	        // Handle receipt if requested
+   167	        String receipt = frame.getHeader("receipt");
+   168	        if (receipt != null) {
+   169	            sendReceipt(receipt);
+   170	        }
+   171	}
+   172	    private void handleConnect(StompFrame frame) {
+   173	        if(isLoggedIn) {
+   174	            sendError(frame, "Already logged in", "You are already logged in.");
+   175	            return;
+   176	        }
+   177	        String username = frame.getHeader("login");
+   178	        String passcode = frame.getHeader("passcode");
+   179	        String acceptVersion = frame.getHeader("accept-version");
+   180	        String host = frame.getHeader("host");
+   181	
+   182	        if (username == null || passcode == null || host == null) {
+   183	            sendError(frame, "Missing credentials", "Login or passcode header is missing.");
+   184	            return;
+   185	        }
+   186	        
+   187	        LoginStatus status = Database.getInstance().login(connectionId, username, passcode);
+   188	        switch (status) {
+   189	            case LOGGED_IN_SUCCESSFULLY:
+   190	            case ADDED_NEW_USER:
+   191	                this.currentUser = username;
+   192	                sendConnectedFrame();
+   193	                break;
+   194	            case CLIENT_ALREADY_CONNECTED:
+   195	                sendError(frame, "Client already connected", "This client is already connected.");
+   196	                break;
+   197	            case ALREADY_LOGGED_IN:
+   198	                sendError(frame, "Already logged in", "This user is already logged in.");
+   199	                break;
+   200	            case WRONG_PASSWORD:
+   201	                sendError(frame, "Wrong password", "The passcode you entered is incorrect.");
+   202	                break;
+   203	            default:
+   204	                sendError(frame, "Login failed", "Login failed due to unknown reasons.");
+   205	                break;
+   206	        }
+   207	    }
+   208	    @Override
+   209	    public boolean shouldTerminate() {
+   210	        return shouldTerminate;
+   211	    }
+   212	    private void sendConnectedFrame() {
+   213	        this.isLoggedIn = true;
+   214	        StompFrame connectedFrame = new StompFrame("CONNECTED");
+   215	        connectedFrame.addHeader("version", "1.2");
+   216	        connections.send(connectionId, connectedFrame);
+   217	    }
+   218	/**
+   219	 * Sends a RECEIPT frame to acknowledge that a command with a receipt header was processed.
+   220	 * @param receiptId The receipt ID from the original frame's receipt header.
+   221	 */
+   222	private void sendReceipt(String receiptId) {
+   223	    StompFrame receiptFrame = new StompFrame("RECEIPT");
+   224	    receiptFrame.addHeader("receipt-id", receiptId);
+   225	    connections.send(connectionId, receiptFrame);
+   226	}
+   227	
+   228	/**
+   229	 * Sends an ERROR frame in the specific format required by the assignment and closes the connection.
+   230	 * * @param faultyFrame The original frame that caused the error (used to extract receipt-id and print in body).
+   231	 * @param messageHeader A short description of the error (goes into the 'message' header).
+   232	 * @param detailedInfo A detailed explanation (goes into the body).
+   233	 */
+   234	private void sendError(StompFrame faultyFrame, String messageHeader, String detailedInfo) {
+   235	    StompFrame errorFrame = new StompFrame("ERROR");
    236	
-   237	    if (faultyFrame != null) {
-   238	        String receipt = faultyFrame.getHeader("receipt");
-   239	        if (receipt != null) {
-   240	            errorFrame.addHeader("receipt-id", receipt);
-   241	        }
-   242	    }
-   243	
-   244	    // Construct the body in the requested format
-   245	    StringBuilder body = new StringBuilder();
-   246	    body.append("The message:\n");
-   247	    body.append("-----\n");
-   248	    
-   249	    if (faultyFrame != null) {
-   250	        // Assuming your StompFrame.toString() returns the frame representation (Command + Headers + Body)
-   251	        body.append(faultyFrame.toString()); 
-   252	    } else {
-   253	        body.append("(No frame content available)");
-   254	    }
-   255	    
-   256	    body.append("\n-----\n");
-   257	    body.append(detailedInfo);
-   258	    errorFrame.setBody(body.toString());
-   259	    connections.send(connectionId, errorFrame);
-   260	
-   261	    this.shouldTerminate = true;
-   262	    }
-   263	}
+   237	    errorFrame.addHeader("message", messageHeader);
+   238	
+   239	    if (faultyFrame != null) {
+   240	        String receipt = faultyFrame.getHeader("receipt");
+   241	        if (receipt != null) {
+   242	            errorFrame.addHeader("receipt-id", receipt);
+   243	        }
+   244	    }
+   245	
+   246	    // Construct the body in the requested format
+   247	    StringBuilder body = new StringBuilder();
+   248	    body.append("The message:\n");
+   249	    body.append("-----\n");
+   250	    
+   251	    if (faultyFrame != null) {
+   252	        // Assuming your StompFrame.toString() returns the frame representation (Command + Headers + Body)
+   253	        body.append(faultyFrame.toString()); 
+   254	    } else {
+   255	        body.append("(No frame content available)");
+   256	    }
+   257	    
+   258	    body.append("\n-----\n");
+   259	    body.append(detailedInfo);
+   260	    errorFrame.setBody(body.toString());
+   261	    connections.send(connectionId, errorFrame);
+   262	    
+   263	    if (isLoggedIn) {
+   264	        Database.getInstance().logout(connectionId);
+   265	        isLoggedIn = false;
+   266	        currentUser = null;
+   267	    }
+   268	    this.shouldTerminate = true;
+   269	    connections.disconnect(connectionId);
+   270	}
+   271	}
 
 
 
@@ -2874,45 +2885,58 @@
     46	
     47	            // Initialize protocol with connectionId and connections
     48	            protocol.start(connectionId, connections);
-    49	
-    50	            while (!protocol.shouldTerminate() && connected && (read = in.read()) >= 0) {
-    51	                T nextMessage = encdec.decodeNextByte((byte) read);
-    52	                if (nextMessage != null) {
-    53	                    // Process message (no response needed - protocol uses connections.send())
-    54	                    protocol.process(nextMessage);
-    55	                    /*if (response != null) {
-    56	                        out.write(encdec.encode(response));
-    57	                        out.flush();
-    58	                    }*/
-    59	                }
-    60	            }
-    61	
-    62	        } catch (IOException ex) {
-    63	            ex.printStackTrace();
-    64	        }
-    65	
-    66	    }
-    67	
-    68	    @Override
-    69	    public void close() throws IOException {
-    70	        connected = false;
-    71	        sock.close();
-    72	    }
-    73	
-    74	    @Override
-    75	    public void send(T msg) {
-    76	         try {
-    77	            if (out != null && connected) {
-    78	                synchronized (out) {
-    79	                    out.write(encdec.encode(msg));
-    80	                    out.flush();
-    81	                }
-    82	            }
-    83	        } catch (IOException e) {
-    84	            e.printStackTrace();
-    85	        }
-    86	    }
-    87	}
+    49	            System.err.println("DEBUG: Handler started for ID " + connectionId);
+    50	
+    51	            while (!protocol.shouldTerminate() && connected && (read = in.read()) >= 0) {
+    52	                // --- DEBUG: Stampa ogni byte ricevuto ---
+    53	                // Se il byte è \0 scriviamo [NULL], se è \n scriviamo [LF], altrimenti il char
+    54	                if (read == 0) System.err.print("[NULL]");//DEBUG
+    55	                else if (read == 10) System.err.print("[LF]");//DEBUG
+    56	                else if (read == 13) System.err.print("[CR]");//DEBUG
+    57	                else System.err.print((char)read);//DEBUG
+    58	                // ----------------------------------------
+    59	                T nextMessage = encdec.decodeNextByte((byte) read);
+    60	                if (nextMessage != null) {
+    61	                    // Process message (no response needed - protocol uses connections.send())
+    62	                    protocol.process(nextMessage);
+    63	                    /*if (response != null) {
+    64	                        out.write(encdec.encode(response));
+    65	                        out.flush();
+    66	                    }*/
+    67	                }
+    68	            }
+    69	
+    70	        } catch (IOException ex) {
+    71	            ex.printStackTrace();
+    72	        }
+    73	        catch(RuntimeException ex){
+    74	            System.err.println("\nCRITICAL ERROR in Handler: " + ex.getMessage());
+    75	            ex.printStackTrace();
+    76	        }
+    77	
+    78	    }
+    79	
+    80	    @Override
+    81	    public void close() throws IOException {
+    82	        connected = false;
+    83	        sock.close();
+    84	    }
+    85	
+    86	    @Override
+    87	    public void send(T msg) {
+    88	         try {
+    89	            if (out != null && connected) {
+    90	                synchronized (out) {
+    91	                    System.out.println(" DEBUG [SERVER SND]: " + msg.toString());
+    92	                    out.write(encdec.encode(msg));
+    93	                    out.flush();
+    94	                }
+    95	            }
+    96	        } catch (IOException e) {
+    97	            e.printStackTrace();
+    98	        }
+    99	    }
+   100	}
 
 
 
