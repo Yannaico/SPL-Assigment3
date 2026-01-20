@@ -44,7 +44,12 @@ public class Database {
 			while ((ch = in.read()) != -1 && ch != '\0') {
 				response.append((char) ch);
 			}
+			   
+			String res = response.toString();
 			
+
+
+
 			return response.toString();
 			
 		} catch (Exception e) {

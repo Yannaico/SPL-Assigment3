@@ -1,6 +1,7 @@
 package bgu.spl.net.impl.stomp;
 
 import bgu.spl.net.srv.Server;
+import bgu.spl.net.impl.data.Database;
 
 public class StompServer {
 
@@ -20,35 +21,41 @@ public class StompServer {
         }
 
         String serverType = args[1];
+        Server<StompFrame> server = null;
 
-        new Thread(() -> {
-            java.util.Scanner scanner = new java.util.Scanner(System.in);
-            while (scanner.hasNextLine()) {
-                String line = scanner.nextLine();
-                if (line.trim().equalsIgnoreCase("report")) {
-                    bgu.spl.net.impl.data.Database.getInstance().printReport();
-                }
-            }
-        }).start();
-        
         if (serverType.equals("tpc")) {
-            Server.threadPerClient(
+            server = Server.threadPerClient(
                     port,
                     () -> new StompMessagingProtocolImpl(), // Protocol Factory 
                     () -> new StompMessageEncoderDecoder()         // Encoder Factory
-            ).serve();
+            );
 
         } else if (serverType.equals("reactor")) {
-            Server.reactor(
+            server = Server.reactor(
                     Runtime.getRuntime().availableProcessors(),
                     port,
                     () -> new StompMessagingProtocolImpl(), // Protocol Factory (Lambda)
                     () -> new StompMessageEncoderDecoder()         // Encoder Factory (Lambda)
-            ).serve();
+            );
 
         } else {
             System.out.println("Unknown server type: " + serverType);
-            System.out.println("Please use 'tpc' or 'reactor'.");
+            return;
         }
+        // Start a separate thread to listen for "report" command
+        new Thread(() -> {
+            java.util.Scanner scanner = new java.util.Scanner(System.in);
+            // Read lines from standard input
+            while (scanner.hasNextLine()) {
+                String line = scanner.nextLine();
+                // If the line is "report", print the report
+                if (line.trim().equalsIgnoreCase("report")) {
+                    // Print the report from the Database
+                    Database.getInstance().printReport();
+                }
+            }
+        }).start();
+        // Start the server
+        server.serve();
     }
 }

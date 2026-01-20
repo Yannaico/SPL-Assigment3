@@ -11,11 +11,15 @@ the methods below.
 import socket
 import sys
 import threading
+import sqlite3 
 
+SERVER_NAME = "STOMP_PYTHON_SQL_SERVER"  
+DB_FILE = "stomp_server.db"              
 
-SERVER_NAME = "STOMP_PYTHON_SQL_SERVER"  # DO NOT CHANGE!
-DB_FILE = "stomp_server.db"              # DO NOT CHANGE!
-
+db_lock = threading.Lock()
+db_conn = None 
+print(f"[{SERVER_NAME}] Connecting to DB...")
+db_conn = sqlite3.connect(DB_FILE, check_same_thread=False)
 
 def recv_null_terminated(sock: socket.socket) -> str:
     data = b""
@@ -30,49 +34,52 @@ def recv_null_terminated(sock: socket.socket) -> str:
 
 
 def init_database():
-    global db_conn
-     
-    db_conn = sqlite3.connect(DB_FILE, check_same_thread=False)
-    cursor = db_conn.cursor()
     
-    # Table Users
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS users (
-            username TEXT PRIMARY KEY,
-            password TEXT NOT NULL,
-            registration_date TEXT NOT NULL
-        )
-    ''')
-    
-    # Table login history
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS login_history (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            username TEXT NOT NULL,
-            login_time TEXT NOT NULL,
-            logout_time TEXT,
-            FOREIGN KEY (username) REFERENCES users(username)
-        )
-    ''')
-    
-    # Table file tracking
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS file_tracking (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            username TEXT NOT NULL,
-            filename TEXT NOT NULL,
-            upload_time TEXT NOT NULL,
-            game_channel TEXT,
-            FOREIGN KEY (username) REFERENCES users(username)
-        )
-    ''')
-    
-    db_conn.commit()
-    print(f"[{SERVER_NAME}] Database initialized")
-
+    try:
+        with db_lock:
+            cursor = db_conn.cursor()
+            
+            # Table Users
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS users (
+                    username TEXT PRIMARY KEY,
+                    password TEXT NOT NULL,
+                    registration_date TEXT NOT NULL
+                )
+            ''')
+            
+            # Table login history
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS login_history (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    username TEXT NOT NULL,
+                    login_time TEXT NOT NULL,
+                    logout_time TEXT,
+                    FOREIGN KEY (username) REFERENCES users(username)
+                )
+            ''')
+            
+            # Table file tracking
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS file_tracking (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    username TEXT NOT NULL,
+                    filename TEXT NOT NULL,
+                    upload_time TEXT NOT NULL,
+                    game_channel TEXT,
+                    FOREIGN KEY (username) REFERENCES users(username)
+                )
+            ''')
+            
+            db_conn.commit()
+            print(f"[{SERVER_NAME}] Tables initialized successfully")
+            
+    except Exception as e:
+        print(f"[{SERVER_NAME}] FATAL ERROR initializing tables: {e}")
+        sys.exit(1)
 
 def execute_sql_command(sql_command: str) -> str:
-    global db_conn
+    
     
     try:
         with db_lock:
@@ -133,15 +140,20 @@ def handle_client(client_socket: socket.socket, addr):
 
 
 def start_server(host="127.0.0.1", port=7778):
+    
     server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-
+    
     try:
         server_socket.bind((host, port))
         server_socket.listen(5)
+
+        init_database()
         print(f"[{SERVER_NAME}] Server started on {host}:{port}")
         print(f"[{SERVER_NAME}] Waiting for connections...")
+        
 
+        
         while True:
             client_socket, addr = server_socket.accept()
             t = threading.Thread(
@@ -153,12 +165,16 @@ def start_server(host="127.0.0.1", port=7778):
 
     except KeyboardInterrupt:
         print(f"\n[{SERVER_NAME}] Shutting down server...")
+    except OSError as e:
+        print(f"\n[{SERVER_NAME}] Port {port} is busy or error: {e}")
     finally:
         try:
+           
+            if db_conn:
+                db_conn.close()
             server_socket.close()
         except Exception:
             pass
-
 
 if __name__ == "__main__":
     port = 7778

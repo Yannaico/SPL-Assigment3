@@ -30,11 +30,11 @@ private:
     
 
 
-    // Logout synchronization
+    // Logout-related fields
     std::mutex logoutMutex;
     std::condition_variable logoutCv;
-    std::string expectedReceiptId = ""; 
-    bool isLogoutComplete = false;
+    bool isLogoutComplete = false;      //flag to indicate logout completion 
+    std::string expectedReceiptId = ""; // to track expected receipt ID for logout
 
 
 public:
@@ -74,6 +74,11 @@ public:
     string getSubscriptionIdByTopic(const string& topic);
     string getCurrentUsername() const { return username; }
 
+    //wait for logout to complete
+    void waitForLogout();
+
+   //process logout receipt
+    bool processLogoutReceipt(const std::string& receiptId);
 };
 
 #endif

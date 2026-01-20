@@ -25,6 +25,7 @@ string StompProtocol::generateSubscriptionId() {
 
 // Frame Builders 
 
+
 string StompProtocol::buildConnectFrame(const string& host, 
                                         const string& user, 
                                         const string& pass) {
@@ -83,13 +84,15 @@ string StompProtocol::buildSendFrame(const string& topic,
                                      const string& user,  const string& filename) {
     string frame = "SEND\n";
     frame += "destination:" + topic + "\n";
-    frame += "\n"; // end of Headers
+   
     
 
     // Optional: Include filename if available (not in Event class,
     if (!filename.empty()) {
         frame += "file-name:" + filename + "\n";
     }
+    
+    frame += "\n"; // end of Headers
 
     // start of Body (Assignment format)
     frame += "user: " + user + "\n";
@@ -125,13 +128,20 @@ string StompProtocol::buildSendFrame(const string& topic,
 string StompProtocol::buildDisconnectFrame() {
     string receiptId = generateReceiptId();
     
+    // --- LOGOUT TRACKING SETUP ---
+    {
+        lock_guard<mutex> lock(logoutMutex);
+        expectedReceiptId = receiptId;
+        isLogoutComplete = false;
+    }
+    // --------------------------------
+    
     string frame = "DISCONNECT\n";
     frame += "receipt:" + receiptId + "\n";
     frame += "\n";
     
     return frame;
 }
-
 //frame procceing logic
 
 void StompProtocol::handleMessageFrame(const string& frame) {
@@ -316,4 +326,25 @@ string StompProtocol::getSubscriptionIdByTopic(const string& topic) {
         }
     }
     return "";
+}
+
+
+// Waits for logout to complete
+void StompProtocol::waitForLogout() {
+    unique_lock<mutex> lock(logoutMutex);
+   //wait until isLogoutComplete is true
+    logoutCv.wait(lock, [this] { return isLogoutComplete; });
+}
+
+//RECEIPT processing for logout
+bool StompProtocol::processLogoutReceipt(const string& receiptId) {
+    lock_guard<mutex> lock(logoutMutex);
+    
+    // Check if this receipt ID matches the expected logout receipt ID
+    if (!expectedReceiptId.empty() && receiptId == expectedReceiptId) {
+        isLogoutComplete = true; // set the flag we are done
+        logoutCv.notify_all();   // notify waiting threads
+        return true;
+    }
+    return false;
 }

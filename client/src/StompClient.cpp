@@ -50,9 +50,17 @@ void socketReaderThread(ConnectionHandler* handler) {
             // delegate business logic to the protocol class
             handler->getProtocol().handleMessageFrame(frame);
             
-        } else if (frame.substr(0, 7) == "RECEIPT") {
-            
-            std::cout<< "Received RECEIPT frame:\n" << frame <<  endl;
+        } else  if (frame.substr(0, 7) == "RECEIPT") {
+            // Check if it's a logout receipt
+           size_t pos = frame.find("receipt-id:");
+            if (pos != std::string::npos) {
+                std::string receiptId = frame.substr(pos + 11);
+                receiptId = receiptId.substr(0, receiptId.find('\n'));
+
+                // Notify the protocol about the logout receipt
+                //main thread will wake up and close the socket
+                handler->getProtocol().processLogoutReceipt(receiptId);
+            }
         }
     }
 }
@@ -211,13 +219,14 @@ int main(int argc, char* argv[]) {
             // mark as logged out internally
             handler->getProtocol().setLoggedIn(false);
 
-            // wait a bit to receive the server's response/receipt
-            // before tearing down the socket.
-             this_thread::sleep_for( chrono::milliseconds(500));
+            //  wait for logout to complete (wait for receipt)    
+             handler->getProtocol().waitForLogout(); 
             
-            // 4. close resources
+            //  close resources
             handler->close(); // This will cause socketReaderThread to exit its loop
             
+            //closing the reader thread will also exit the loop
+            // wait for the reader thread to finish
             if (readerThread != nullptr) {
                 readerThread->join(); // wait for the thread to finish and die
                 delete readerThread;
